@@ -34,20 +34,26 @@ class DiscriminatorGLM:
         dt = t[1]
         log_likelihood_iterations = []
         theta = np.zeros(X.shape[1] + 1)
-        theta[1:X.shape[1] + 1] = np.random.rand(X.shape[1])
-        theta[0] = (np.mean(X[y == 1, :] @ theta[1:]) + np.mean(X[y == 0, :] @ theta[1:])) / 2
+#         theta[1:X.shape[1] + 1] = np.random.rand(X.shape[1])
+#         theta[0] = (np.mean(X[y == 1, :] @ theta[1:]) + np.mean(X[y == 0, :] @ theta[1:])) / 2
         for ii in range(max_iterations):
-            theta = self.update_theta(theta, dt, X, mask_spikes, y)
+            theta = self.update_theta(theta, dt, X, mask_spikes, y, lr)
             
         self.x0 = theta[0]
         self.beta = theta[1:X.shape[1] + 1]
         
         return self
     
-    def update_theta(self, theta, dt, X, mask_spikes, y):
+    def update_theta(self, theta, dt, X, mask_spikes, y, lr):
         
+        max_g, a = 1e1, 1e-1
         log_likelihood, g_log_likelihood = self.gh_log_likelihood(theta, dt, X, mask_spikes, y)
-        g_log_likelihood[np.abs(g_log_likelihood) >1e3] = np.sign(g_log_likelihood[np.abs(g_log_likelihood) >1e3]) * 1e3
+#         mask_exploding_g = np.abs(g_log_likelihood) > max_g
+#         g_log_likelihood[mask_exploding_g] = np.sign(g_log_likelihood[mask_exploding_g]) * a
+#         print(g_log_likelihood)
+#         if np.any(mask_exploding_g):
+#             lr = 1e-4
+#         print(lr)
         self.log_likelihood_iterations.append(log_likelihood)
         theta = theta + lr * g_log_likelihood
         
