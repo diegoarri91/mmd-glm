@@ -4,6 +4,7 @@ import sys
 sys.path.append("/home/diego/Dropbox/hold_noise/iclamp-glm/")
 
 import numpy as np
+from sklearn.metrics import recall_score
 
 # from icglm.models.base import BayesianSpikingModel
 from optimization import NewtonMethod
@@ -15,15 +16,18 @@ def sigmoid(x):
 
 class AdversarialGLM:
 
-    def __init__(self, u0, eta, discriminator, mu=None, sd=None):
+    def __init__(self, u0, eta, discriminator, discriminator_features=None, c2=True, mu=None, sd=None):
         self.u0 = u0
         self.eta = eta
         self.discriminator = discriminator
+        self.discriminator_features = discriminator_features
         self.mu = mu
         self.sd = sd
 #         self.log_likelihood_iterations_d = []
         self.c_iterations = []
-        self.discriminator_accuracy = []
+        self.discriminator_recall_fr = []
+        self.discriminator_recall_te = []
+        self.c2 = c2
 
     @property
     def r0(self):
@@ -112,36 +116,34 @@ class AdversarialGLM:
         return False
 
     def gh_log_likelihood_r_sum(self, theta, dt, X=None, mask_spikes=None, newton_kwargs_d=None):
-#         u_new_te, r_new_te = aglm.simulate_subthreshold(t, stim_naive, mask_spikes_te)
+
         X_te = X.copy()
         u_te = np.einsum('ijk,k->ij', X_te, theta)
         r_te = np.exp(u_te)
-        
         mask_spikes_te = mask_spikes.copy() 
-        n_samples = mask_spikes_te.shape[1]
+        n_te = mask_spikes_te.shape[1]
         
         t = np.arange(mask_spikes_te.shape[0]) * dt
-        n = 100
+        n_fr = 100
+        stim = np.zeros((len(t), n_fr))
   
         n_discriminator_iterations, lr = newton_kwargs_d['max_iterations'], newton_kwargs_d['learning_rate']
         lam_ml, lam_d = newton_kwargs_d['lam_ml'], newton_kwargs_d['lam_d']
         standardize = newton_kwargs_d['standardize']
         warm_up_iterations = newton_kwargs_d['warm_up_iterations']
 
-#         u_fr, r_fr, mask_spikes_fr = self.sample(t, np.zeros((len(t), n)))
-        aux = AdversarialGLM(u0=theta[0], eta=self.eta.copy(), discriminator=None)
-        aux.eta.coefs = theta[1:]
-        u_fr, r_fr, mask_spikes_fr = aux.sample(t, np.zeros((len(t), n)))
-        dic_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)        
-        X_fr = dic_fr['X']
+        aglm = AdversarialGLM(u0=theta[0], eta=self.eta.copy(), discriminator=None)
+        aglm.eta.coefs = theta[1:]
+        u_fr, r_fr, mask_spikes_fr = aglm.sample(t, stim)
+        X_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)['X']      
         
         r = np.concatenate((r_te, r_fr), axis=1)
-
         mask_discriminator = np.concatenate((mask_spikes_te.copy(), mask_spikes_fr.copy()), axis=1)
-        y = np.concatenate((np.ones(n_samples), np.zeros(n)))
-        X_discriminator = np.sum(r, 0)[:, None]
-#         print('\n', np.mean(X_discriminator[:n_samples]), np.mean(X_discriminator[n_samples:]))
-#         print(np.any(np.isnan(X_discriminator)))
+        y = np.concatenate((np.ones(n_te), np.zeros(n_fr)))
+        
+#         X_discriminator = np.sum(r, 0)[:, None]
+        X_discriminator = self.get_X_discriminator(r, mask_discriminator)
+        
         if standardize:
             mu, sd = np.mean(X_discriminator, 0), np.std(X_discriminator, 0)
             X_discriminator = (X_discriminator - mu) / sd
@@ -149,9 +151,9 @@ class AdversarialGLM:
             sd = 1
             
         theta_d = self.discriminator.get_theta()
-        y_proba = self.discriminator.predict_proba(t, np.zeros(mask_discriminator.shape), 
-                                                  mask_discriminator, X_discriminator)
-        y_pred = y_proba > 0.5
+#         y_proba = self.discriminator.predict_proba(t, np.zeros(mask_discriminator.shape), 
+#                                                   mask_discriminator, X_discriminator)
+#         y_pred = y_proba > 0.5
 #         print('\n accuracy_score before', np.mean(y == y_pred), self.discriminator.gh_log_likelihood(theta_d, dt, X_discriminator, mask_discriminator, y)[0])
         
         if len(self.c_iterations) > warm_up_iterations:
@@ -164,37 +166,13 @@ class AdversarialGLM:
         y_proba = self.discriminator.predict_proba(t, np.zeros(mask_discriminator.shape), 
                                                   mask_discriminator, X_discriminator)
         y_pred = y_proba > 0.5
-        self.discriminator_accuracy.append(np.mean(y == y_pred))
+        self.discriminator_recall_te.append(recall_score(y, y_pred, pos_label=1))
+        self.discriminator_recall_fr.append(recall_score(y, y_pred, pos_label=0))
+#         print('\n', np.mean(X_discriminator[:n_te]), np.mean(X_discriminator[n_te:]))
 #         print('accuracy_score after', np.mean(y == y_pred))
-        
-        y_proba_fr = self.discriminator.predict_proba(t, np.zeros(mask_spikes_fr.shape), 
-                                                  mask_spikes_fr, X_discriminator[n_samples:, :])
-        eps = 1e-20
 
-        X_r_fr = np.einsum('ijk,ij->jk', X_fr, r_fr)
-        X_r_X_fr = np.einsum('ijk,ij,ijl->jkl', X_fr, r_fr, X_fr)
-        c1_pf =  np.sum(np.log(y_proba_fr + eps))
-        g_c1_pf = theta_d[1] / sd * np.einsum('j,jk->k', 1 - y_proba_fr,  X_r_fr)
-        h_c1_pf = theta_d[1] / sd * np.einsum('j,jkl->kl', 1 - y_proba_fr,  X_r_X_fr) -\
-                  theta_d[1]**2 / sd**2 * np.einsum('j,jkl->kl', y_proba_fr * (1 - y_proba_fr), np.einsum('jk,jl->jkl', X_r_fr, X_r_fr))
+        c_pf, g_pf, h_pf = self.gh_discriminator_terms(t, X_discriminator, mask_spikes_fr, mask_spikes_te, X_fr, X_te, r_fr, r_te, n_te)
         
-        y_proba_te = self.discriminator.predict_proba(t, np.zeros(mask_spikes_te.shape), 
-                                                  mask_spikes_te, X_discriminator[:n_samples, :])
-        X_r_te = np.einsum('ijk,ij->jk', X_te, r_te)
-        X_r_X_te = np.einsum('ijk,ij,ijl->jkl', X_te, r_te, X_te)
-        c2_pf =  np.sum(np.log(1 - y_proba_te + eps))
-        g_c2_pf = theta_d[1] / sd * np.einsum('j,jk->k', y_proba_te,  X_r_te)        
-        h_c2_pf = theta_d[1] / sd * np.einsum('j,jkl->kl', y_proba_te,  X_r_X_te) +\
-                  theta_d[1]**2 / sd**2 * np.einsum('j,jkl->kl', y_proba_te * (1 - y_proba_te), np.einsum('jk,jl->jkl', X_r_te, X_r_te))
-        
-        c_pf = c1_pf + c2_pf
-        g_pf = g_c1_pf + g_c2_pf
-        h_pf = g_c1_pf + g_c2_pf
-
-#         c_pf = c1_pf
-#         g_pf = g_c1_pf
-#         h_pf = h_c1_pf
-#         print('hola', X_te.shape, mask_spikes_te.shape, X_te[mask_spikes_te, :].shape)
         log_likelihood = lam_ml * (np.sum(u_te[mask_spikes_te]) - dt * np.sum(r_te)) + lam_d * c_pf
         g_log_likelihood = lam_ml * (np.sum(X_te[mask_spikes_te, :], axis=0) - dt * np.einsum('ijk,ij->k', X_te, r_te)) + lam_d * g_pf
         h_log_likelihood = lam_ml *(- dt * np.einsum('ijk,ij,ijl->kl', X_te, r_te, X_te)) + lam_d * h_pf
@@ -202,165 +180,66 @@ class AdversarialGLM:
         self.c_iterations.append(lam_d * c_pf)
 
         return log_likelihood, g_log_likelihood, h_log_likelihood
-
-#     def gh_log_likelihood_kernels(self, theta, dt, X=None, mask_spikes=None, newton_kwargs_d=None):
-#         u_te = np.einsum('ijk,k->ij', X, theta)
-#         r_te = np.exp(u_te)
-#         X_te = X.copy()
-#         mask_spikes_te = mask_spikes.copy() 
-#         n_samples = mask_spikes_te.shape[1]
-        
-#         t = np.arange(mask_spikes_te.shape[0]) * dt
-#         n = 100
-  
-#         n_discriminator_iterations, lr = newton_kwargs_d['max_iterations'], newton_kwargs_d['learning_rate']
-#         lam_ml, lam_d = newton_kwargs_d['lam_ml'], newton_kwargs_d['lam_d']
-
-#         u_fr, r_fr, mask_spikes_fr = self.sample(t, np.zeros((len(t), n)))
-
-#         mask_discriminator = np.concatenate((mask_spikes_te.copy(), mask_spikes_fr.copy()), axis=1)
-#         y = np.concatenate((np.ones(n_samples), np.zeros(n)))
-#         X_discriminator = np.zeros((n_samples + n, 1))
-#         X_discriminator[:n_samples, 0] = np.array([np.mean(u_te[mask_spikes_te[:, sw], sw]) for sw in range(n_samples)])
-#         X_discriminator[n_samples:, 0] = np.array([np.mean(u_fr[mask_spikes_fr[:, sw], sw]) for sw in range(n)])
-# #         sd = np.std(X_discriminator, 0)
-# #         X_discriminator = (X_discriminator - np.mean(X_discriminator, 0)) / sd
-
-#         theta_d = self.discriminator.get_theta()
-#         y_proba = self.discriminator.predict_proba(t, np.zeros(mask_discriminator.shape), 
-#                                                   mask_discriminator, X_discriminator)
-#         y_pred = y_proba > 0.5
-# #         print('\n accuracy_score before', np.mean(y == y_pred), self.discriminator.gh_log_likelihood(theta_d, dt, X_discriminator, mask_discriminator, y)[0])
-        
-#         for k in range(n_discriminator_iterations):
-#             theta_d = self.discriminator.update_theta(theta_d, dt, X_discriminator, mask_discriminator, y, lr)
-        
-#         self.discriminator = self.discriminator.set_params(theta_d)
-        
-#         y_proba = self.discriminator.predict_proba(t, np.zeros(mask_discriminator.shape), 
-#                                                   mask_discriminator, X_discriminator)
-#         y_pred = y_proba > 0.5
-# #         print('accuracy_score after', np.mean(y == y_pred))
-        
-#         y_proba = self.discriminator.predict_proba(t, np.zeros(mask_spikes_fr.shape), 
-#                                                   mask_spikes_fr, X_discriminator[n_samples:, :])
-#         eps = 1e-20
-#         dic_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)        
-#         X_fr = dic_fr['X']
-#         X_sum_fr = np.array([np.mean(X_fr[mask_spikes_fr[:, ii], ii, :], 0) for ii in range(mask_spikes_fr.shape[1])])
-#         c1_pf =  np.sum(np.log(y_proba + eps))
-#         g_c1_pf = theta_d[1] * np.einsum('j,jk->k', (1 - y_proba),  X_sum_fr)        
-#         h_c1_pf = -theta_d[1]**2 * np.einsum('j,jkl->kl', y_proba * (1 - y_proba), np.einsum('jk,jl->jkl', X_sum_fr, X_sum_fr))
-        
-#         y_proba = self.discriminator.predict_proba(t, np.zeros(mask_spikes_te.shape), 
-#                                                   mask_spikes_te, X_discriminator[:n_samples, :])
-#         X_sum_te = np.array([np.mean(X_te[mask_spikes_te[:, ii], ii, :], 0) for ii in range(n_samples)])
-#         c2_pf =  np.sum(np.log(1 - y_proba + eps))
-#         g_c2_pf = theta_d[1] * np.einsum('j,jk->k', y_proba,  X_sum_te)        
-#         h_c2_pf = theta_d[1]**2 * np.einsum('j,jkl->kl', y_proba * (1 - y_proba), np.einsum('jk,jl->jkl', X_sum_te, X_sum_te))
-        
-# #         log_likelihood = lam_ml * (np.sum(u_te[mask_spikes_te]) - dt * np.sum(r_te)) + lam_d * c1_pf
-# #         g_log_likelihood = lam_ml * (np.sum(X_te[mask_spikes_te, :], axis=0) - dt * np.einsum('ijk,ij->k', X_te, r_te)) + lam_d * g_c1_pf
-# #         h_log_likelihood = lam_ml *(- dt * np.einsum('ijk,ij,ijl->kl', X_te, r_te, X_te)) + lam_d * h_c1_pf
-        
-#         log_likelihood = lam_ml * (np.sum(u_te[mask_spikes_te]) - dt * np.sum(r_te)) + lam_d * (c1_pf + c2_pf)
-#         g_log_likelihood = lam_ml * (np.sum(X_te[mask_spikes_te, :], axis=0) - dt * np.einsum('ijk,ij->k', X_te, r_te)) + lam_d * (g_c1_pf + g_c2_pf)
-#         h_log_likelihood = lam_ml *(- dt * np.einsum('ijk,ij,ijl->kl', X_te, r_te, X_te)) + lam_d * (h_c1_pf + h_c2_pf)
-        
-#         self.c_iterations.append(lam_d * (c1_pf + c2_pf))
-
-#         return log_likelihood, g_log_likelihood, h_log_likelihood
     
-#     def gh_log_likelihood_kernels2(self, theta, dt, X=None, mask_spikes=None, newton_kwargs_d=None):
-#         u = np.einsum('ijk,k->ij', X, theta)
-#         r = np.exp(u)
-#         n_samples = mask_spikes.shape[1]
+    def gh_discriminator_terms(self, t, X_discriminator, mask_spikes_fr, mask_spikes_te, X_fr, X_te, r_fr, r_te, n_te):
+        eps = 1e-20
+        theta_d = self.discriminator.get_theta()
+        y_proba_fr = self.discriminator.predict_proba(t, np.zeros(mask_spikes_fr.shape), 
+                                                     mask_spikes_fr, X_discriminator[n_te:, :])
+        c_pf =  np.sum(np.log(y_proba_fr + eps))
+        if self.c2:
+            y_proba_te = self.discriminator.predict_proba(t, np.zeros(mask_spikes_te.shape), 
+                                                      mask_spikes_te, X_discriminator[:n_te, :])
+            c_pf = c_pf + np.sum(np.log(1 - y_proba_te + eps))
         
-#         t = np.arange(mask_spikes.shape[0]) * dt
-#         theta_d = self.discriminator.get_theta()
-  
-#         n = 100
-#         n_discriminator_iterations, lr = newton_kwargs_d['max_iterations'], newton_kwargs_d['learning_rate']
-#         u_fr, r_fr, mask_spikes_fr = self.sample(t, np.zeros((len(t), n)))
+        ii = 0
+        sd = 1
+        if 'r_sum' in self.discriminator_features:
+            X_r_fr = np.einsum('ijk,ij->jk', X_fr, r_fr)
+            X_r_X_fr = np.einsum('ijk,ij,ijl->jkl', X_fr, r_fr, X_fr)
+#             X_r_fr = np.array([np.einsum('tk,t->k', X_fr[:, sw, :], r_fr[:, sw]) for sw in range(X_fr.shape[1])])
+#             X_r_X_fr = np.array([np.einsum('tk,t,tl->kl', X_fr[:, sw, :], r_fr[:, sw], X_fr[:, sw, :]) for sw in range(X_fr.shape[1])])
 
-# #         print(X_fr.shape)
-#         mask_discriminator = np.concatenate((mask_spikes[...], np.zeros((len(t), n))), axis=1)
-#         mask_discriminator[:, n_samples:] = mask_spikes_fr[...]            
-#         y = np.concatenate((np.ones(n_samples), np.zeros(n)))
-#         X_discriminator = np.zeros((n_samples + n, 1))
-#         X_discriminator[:n_samples, 0] = np.sum(r, 0)
-#         X_discriminator[n_samples:, 0] = np.sum(r_fr, 0)
-#         X_discriminator = (X_discriminator - np.mean(X_discriminator, 0)) / np.std(X_discriminator, 0)
-# #         X_discriminator = (X_discriminator - self.mu) / self.sd
+            g_c_pf = theta_d[ii + 1] / sd * np.einsum('j,jk->k', 1 - y_proba_fr,  X_r_fr)
+            h_c_pf = theta_d[ii + 1] / sd * np.einsum('j,jkl->kl', 1 - y_proba_fr,  X_r_X_fr) -\
+                     theta_d[ii + 1]**2 / sd**2 * np.einsum('j,jkl->kl', y_proba_fr * (1 - y_proba_fr), np.einsum('jk,jl->jkl', X_r_fr, X_r_fr))
+#             print(self.c2)
+            if self.c2:
+                X_r_te = np.einsum('ijk,ij->jk', X_te, r_te)
+                X_r_X_te = np.einsum('ijk,ij,ijl->jkl', X_te, r_te, X_te)
 
-#         y_pred = self.discriminator.predict_proba(t, np.zeros(mask_discriminator.shape), 
-#                                                   mask_discriminator, X_discriminator)
-#         print('\n accuracy_score before', np.sum(y == (y_pred > 0.5)) / len(y), 
-#               self.discriminator.gh_log_likelihood(theta_d, dt, X_discriminator, mask_discriminator, y)[0])
-        
-#         dic_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)        
-#         X_fr = np.concatenate((X, dic_fr['X']), axis=1)
-#         r_fr = np.concatenate((r, r_fr), axis=1)
-        
-#         for k in range(n_discriminator_iterations):
-            
-# #             u_fr, r_fr, mask_spikes_fr = self.sample(t, np.zeros(mask_spikes.shape))
-# #             mask_discriminator[:, n_samples:] = mask_spikes_fr[...]            
-# #             X_discriminator = np.zeros((2 * n_samples, 1))
-# #             X_discriminator[:n_samples, 0] = np.sum(r, 0)
-# #             X_discriminator[n_samples:, 0] = np.sum(r_fr, 0)
-# #             X_discriminator = (X_discriminator - np.mean(X_discriminator, 0)) / np.std(X_discriminator, 0)
-            
-# #             log_likelihood_d, g_log_likelihood_d = self.discriminator.gh_log_likelihood(theta_d, dt, X_discriminator, mask_discriminator, y)
-# #             g_log_likelihood_d[np.abs(g_log_likelihood_d) >1e3] = np.sign(g_log_likelihood_d[np.abs(g_log_likelihood_d) > 1e3]) * 1e3
-# #             theta_d = theta_d + lr * g_log_likelihood_d
-            
-#             theta_d = self.discriminator.update_theta(theta_d, dt, X_discriminator, mask_discriminator, y, lr)
-        
-#         self.discriminator = self.discriminator.set_params(theta_d)
-        
-# #         u_fr, r_fr, mask_spikes_fr = self.sample(t, np.zeros((len(t), n)))
-        
-# #         dic_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)
-# #         X_fr = dic_fr['X']
-        
-# #         X_discriminator = np.sum(r_fr, 0)[:, None]
-# #         X_discriminator = (X_discriminator - self.mu) / self.sd
-# #         y_pred = self.discriminator.predict_proba(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr, X_discriminator)    
-        
-# #         X_fr, r_fr = X.copy(), r.copy()
-# #         X_discriminator = np.sum(r, 0)[:, None]
-# #         mu, sd = np.mean(X_discriminator, 0), np.std(X_discriminator, 0)
-# #         X_discriminator = (X_discriminator - self.mu) / self.sd
-# #         y_pred = self.discriminator.predict_proba(t, np.zeros(mask_spikes.shape), mask_spikes, X_discriminator)
-# #         print((y_pred > 0.5))
+                g_c_pf = g_c_pf + theta_d[ii + 1] / sd * np.einsum('j,jk->k', y_proba_te,  X_r_te)        
+                h_c_pf = h_c_pf + theta_d[ii + 1] / sd * np.einsum('j,jkl->kl', y_proba_te,  X_r_X_te) +\
+                          theta_d[ii + 1]**2 / sd**2 * np.einsum('j,jkl->kl', y_proba_te * (1 - y_proba_te), np.einsum('jk,jl->jkl', X_r_te, X_r_te))
+            ii += 1
+        if 'r_spk' in self.discriminator_features:
+            X_r_fr_spk = np.array([np.einsum('tk,t->k', X_fr[mask_spikes_fr[:, sw], sw, :], r_fr[mask_spikes_fr[:, sw], sw]) for sw in range(X_fr.shape[1])])
+            X_r_X_fr_spk = np.array([np.einsum('tk,t,tl->kl', X_fr[mask_spikes_fr[:, sw], sw, :], r_fr[mask_spikes_fr[:, sw], sw], X_fr[mask_spikes_fr[:, sw], sw, :]) for sw in range(X_fr.shape[1])])
 
-#         y_pred = self.discriminator.predict_proba(t, np.zeros(mask_discriminator.shape), 
-#                                                   mask_discriminator, X_discriminator)
+            g_c_pf = theta_d[ii + 1] / sd * np.einsum('j,jk->k', 1 - y_proba_fr,  X_r_fr_spk)
+            h_c_pf = theta_d[ii + 1] / sd * np.einsum('j,jkl->kl', 1 - y_proba_fr,  X_r_X_fr_spk) -\
+                     theta_d[ii + 1]**2 / sd**2 * np.einsum('j,jkl->kl', y_proba_fr * (1 - y_proba_fr), np.einsum('jk,jl->jkl', X_r_fr_spk, X_r_fr_spk))
+            if self.c2:
+                X_r_te_spk = np.array([np.einsum('tk,t->k', X_te[mask_spikes_te[:, sw], sw, :], r_te[mask_spikes_te[:, sw], sw]) for sw in range(X_te.shape[1])])
+                X_r_X_te_spk = np.array([np.einsum('tk,t,tl->kl', X_te[mask_spikes_te[:, sw], sw, :], r_te[mask_spikes_te[:, sw], sw], X_te[mask_spikes_te[:, sw], sw, :]) for sw in range(X_te.shape[1])])
+                
+                g_c_pf = g_c_pf + theta_d[ii + 1] / sd * np.einsum('j,jk->k', y_proba_te,  X_r_te_spk)  
+                h_c_pf = h_c_pf + theta_d[ii + 1] / sd * np.einsum('j,jkl->kl', y_proba_te,  X_r_X_te_spk) +\
+                                  theta_d[ii + 1]**2 / sd**2 * np.einsum('j,jkl->kl', y_proba_te * (1 - y_proba_te), np.einsum('jk,jl->jkl', X_r_te_spk, X_r_te_spk))
+            ii += 1
+        
+        return c_pf, g_c_pf, h_c_pf
     
-#         print('accuracy_score after', np.sum(y == (y_pred > 0.5)) / len(y), 
-#              self.discriminator.gh_log_likelihood(theta_d, dt, X_discriminator, mask_discriminator, y)[0])
-        
-#         eps = 1e-20
-#         reg = 1e0
-#         c1_pf =  np.sum((1 - y) * np.log(y_pred + eps))
-#         X_r_fr = np.einsum('ijk,ij->jk', X_fr, r_fr)
-#         print(X_fr.shape)
-#         g_c1_pf = theta_d[1] / self.sd * np.einsum('j,jk->k', 1 - y_pred,  X_r_fr)
-#         h_c1_pf = theta_d[1] / self.sd * np.einsum('j,jkl->kl', 1 - y_pred,  np.einsum('ijk,ij,ijl->jkl', X_fr, r_fr, X_fr)) -\
-#                   theta_d[1]**2 / self.sd**2 * np.einsum('j,jkl->kl', y_pred * (1 - y_pred), np.einsum('jk,jl->jkl', X_r_fr, X_r_fr))
-        
-# #         log_likelihood = np.sum(u[mask_spikes]) - dt * np.sum(r) + reg * c1_pf
-# #         g_log_likelihood = np.sum(X[mask_spikes, :], axis=0) - dt * np.einsum('ijk,ij->k', X, r) + reg * g_c1_pf
-# #         h_log_likelihood = - dt * np.einsum('ijk,ij,ijl->kl', X, r, X) + reg * h_c1_pf
-        
-#         log_likelihood = reg * c1_pf
-#         g_log_likelihood = reg * g_c1_pf
-#         h_log_likelihood = reg * h_c1_pf
-        
-#         self.c_iterations.append(reg * c1_pf)
-
-#         return log_likelihood, g_log_likelihood, h_log_likelihood
+    def get_X_discriminator(self, r, mask_spikes):
+        X_discriminator = np.zeros((mask_spikes.shape[1], len(self.discriminator_features)))
+        ii = 0
+        if 'r_sum' in self.discriminator_features:
+            X_discriminator[:, ii] = np.sum(r, 0)
+            ii += 1
+        if 'r_spk' in self.discriminator_features:
+            X_discriminator[:, ii] = np.array([np.sum(r[mask_spikes[:, sw], sw]) for sw in range(mask_spikes.shape[1])])
+            ii += 1
+        return X_discriminator
 
     def get_theta(self):
         n_kappa = 0 
