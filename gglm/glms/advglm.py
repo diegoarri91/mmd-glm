@@ -7,7 +7,7 @@ import numpy as np
 from sklearn.metrics import recall_score
 
 # from icglm.models.base import BayesianSpikingModel
-from optimization import NewtonMethod
+from gglm.optimization import NewtonMethod
 from icglm.masks import shift_mask
 from icglm.utils.time import get_dt
 

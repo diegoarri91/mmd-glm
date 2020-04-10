@@ -1,15 +1,10 @@
 from functools import partial
 import pickle
-import sys
-sys.path.append("/home/diego/Dropbox/hold_noise/iclamp-glm/")
 
 import numpy as np
-from sklearn.metrics import recall_score
 
-# from icglm.models.base import BayesianSpikingModel
-from optimization import NewtonMethod
-from icglm.masks import shift_mask
-from icglm.utils.time import get_dt
+from ..optimization import NewtonMethod
+from ..utils import get_dt, shift_array
 
 class GLM:
 
@@ -25,7 +20,7 @@ class GLM:
         return self.__class__(u0=self.u0, eta=self.eta.copy())
 
     def save(self, path):
-        params = dict(u0=self.u0, kappa=self.kappa, eta=self.eta)
+        params = dict(u0=self.u0, eta=self.eta)
         with open(path, "wb") as fit_file:
             pickle.dump(params, fit_file)
 
@@ -33,7 +28,7 @@ class GLM:
     def load(cls, path):
         with open(path, "rb") as fit_file:
             params = pickle.load(fit_file)
-        glm = cls(u0=params['u0'], kappa=params['kappa'], eta=params['eta'])
+        glm = cls(u0=params['u0'], eta=params['eta'])
         return glm
 
     def sample(self, t, stim, full=False):
@@ -83,7 +78,7 @@ class GLM:
 
         shape = mask_spk.shape
         dt = get_dt(t)
-        arg_spikes = np.where(shift_mask(mask_spk, 1, fill_value=False))
+        arg_spikes = np.where(shift_array(mask_spk, 1, fill_value=False))
         t_spikes = (t[arg_spikes[0]], arg_spikes[1])
 
         if self.eta is not None and len(t_spikes[0]) > 0:
@@ -131,7 +126,7 @@ class GLM:
         X[:, :, 0] = -1.
 
         if self.eta is not None:
-            args = np.where(shift_mask(mask_spikes, 1, fill_value=False))
+            args = np.where(shift_array(mask_spikes, 1, fill_value=False))
             t_spk = (t[args[0]],) + args[1:]
             n_eta = self.eta.nbasis
             X_eta = self.eta.convolve_basis_discrete(t, t_spk, shape=mask_spikes.shape)
@@ -149,17 +144,13 @@ class GLM:
 
     def fit(self, t, stim, mask_spikes, stim_h=0, newton_kwargs=None, verbose=False, newton_kwargs_d=None, 
             discriminator='r_sum'):
-        
+
         newton_kwargs = {} if newton_kwargs is None else newton_kwargs
 
         theta0 = self.get_params()
-        likelihood_kwargs = self.get_likelihood_kwargs(t, stim, mask_spikes, stim_h=stim_h)
+        objective_kwargs = self.get_likelihood_kwargs(t, stim, mask_spikes)
 
-        gh_log_prior = None if not(self.use_prior_kernels()) else self.gh_log_prior_kernels
-        if discriminator == 'r_sum':
-            gh_log_likelihood = partial(self.gh_log_likelihood_r_sum, **likelihood_kwargs)
-        else:
-            gh_log_likelihood = partial(self.gh_log_likelihood_kernels, **likelihood_kwargs)
+        gh_objective = partial(self.gh_objective, **objective_kwargs)
 
         optimizer = NewtonMethod(theta0=theta0, gh_log_prior=gh_log_prior, gh_log_likelihood=gh_log_likelihood,
                                  verbose=verbose, **newton_kwargs)
@@ -169,4 +160,3 @@ class GLM:
         self.set_params(theta)
 
         return optimizer
-    
