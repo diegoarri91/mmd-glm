@@ -7,7 +7,7 @@ from scipy.linalg import solveh_banded
 class NewtonMethod:
 
     def __init__(self, theta0=None, g_log_prior=None, h_log_prior=None, gh_log_prior=None, gh_log_likelihood=None,
-                 theta_independent_h=False, learning_rate=1e-1, initial_learning_rate=1e-2,
+                 learning_rate=1e-1, initial_learning_rate=1e-2,
                  max_iterations=200, stop_cond=5e-4, warm_up_iterations=5, verbose=False, use_hessian=True):
 
         self.theta0 = theta0
@@ -56,15 +56,6 @@ class NewtonMethod:
                 log_prior, g_log_prior, h_log_prior = self.gh_log_prior(theta)
                 log_posterior = log_likelihood + log_prior
                 g_log_posterior = g_log_likelihood + g_log_prior
-                if self.banded_h:
-                    if max_likelihood_band >= max_prior_band:
-                        h_log_posterior = h_log_likelihood
-                        h_log_posterior[:max_prior_band, :] += h_log_prior
-                    else:
-                        h_log_posterior = h_log_prior
-                        h_log_posterior[:max_likelihood_band, :] += h_log_likelihood
-                else:
-                    h_log_posterior = h_log_likelihood + h_log_prior
             else:
                 log_posterior = log_likelihood
                 g_log_posterior = g_log_likelihood
@@ -104,10 +95,13 @@ class NewtonMethod:
                 learning_rate = self.learning_rate
             else:
                 learning_rate = self.initial_learning_rate
+
             if self.use_hessian:
                 theta = theta - learning_rate * np.linalg.solve(h_log_posterior, g_log_posterior)
             else:
                 theta = theta + learning_rate * g_log_posterior
+
+
 
         fitting_time = (time.time() - t0) / 60.
 

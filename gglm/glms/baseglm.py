@@ -91,21 +91,30 @@ class GLM:
         else:
             eta_conv = np.zeros(shape)
 
-        v = - eta_conv - self.u0
-        r = np.exp(v)
+        u = - eta_conv - self.u0
+        r = np.exp(u)
 
         if full:
-            return eta_conv, v, r
+            return eta_conv, u, r
         else:
-            return v, r
+            return u, r
 
     def use_prior_kernels(self):
         return False
 
-    def gh_log_likelihood(self, theta, dt, X=None, mask_spikes=None, newton_kwargs_d=None):
-        pass
+    def gh_log_likelihood(self, dt, X, mask_spikes):
+
+        theta = self.get_params()
+        u = np.einsum('tka,a->tk', X, theta)
+        r = np.exp(u)
+
+        log_likelihood = np.sum(u[mask_spikes]) - dt * np.sum(r)
+        g_log_likelihood = np.sum(X[mask_spikes, :], axis=0) - dt * np.einsum('tka,tk->a', X, r)
+        h_log_likelihood = - dt * np.einsum('tka,tk,tkb->ab', X, r, X)
+
+        return log_likelihood, g_log_likelihood, h_log_likelihood
     
-    def get_theta(self):
+    def get_params(self):
         n_kappa = 0 
         n_eta = 0 if self.eta is None else self.eta.nbasis
         theta = np.zeros((1 + n_kappa + n_eta))
@@ -128,7 +137,7 @@ class GLM:
             X_eta = self.eta.convolve_basis_discrete(t, t_spk, shape=mask_spikes.shape)
             X[:, :, n_kappa + 1:] = -X_eta
 
-        likelihood_kwargs = dict(dt=get_dt(t), X=X, mask_spikes=mask_spikes, newton_kwargs_d=newton_kwargs_d)
+        likelihood_kwargs = dict(dt=get_dt(t), X=X, mask_spikes=mask_spikes)
 
         return likelihood_kwargs
 
@@ -143,8 +152,8 @@ class GLM:
         
         newton_kwargs = {} if newton_kwargs is None else newton_kwargs
 
-        theta0 = self.get_theta()
-        likelihood_kwargs = self.get_likelihood_kwargs(t, stim, mask_spikes, stim_h=stim_h, newton_kwargs_d=newton_kwargs_d)
+        theta0 = self.get_params()
+        likelihood_kwargs = self.get_likelihood_kwargs(t, stim, mask_spikes, stim_h=stim_h)
 
         gh_log_prior = None if not(self.use_prior_kernels()) else self.gh_log_prior_kernels
         if discriminator == 'r_sum':
