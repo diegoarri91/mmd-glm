@@ -135,7 +135,7 @@ class AdversarialGLM:
         aglm = AdversarialGLM(u0=theta[0], eta=self.eta.copy(), discriminator=None)
         aglm.eta.coefs = theta[1:]
         u_fr, r_fr, mask_spikes_fr = aglm.sample(t, stim)
-        X_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)['X']      
+        X_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)['X_te']
         
         r = np.concatenate((r_te, r_fr), axis=1)
         mask_discriminator = np.concatenate((mask_spikes_te.copy(), mask_spikes_fr.copy()), axis=1)

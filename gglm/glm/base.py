@@ -31,21 +31,14 @@ class GLM:
         glm = cls(u0=params['u0'], eta=params['eta'])
         return glm
 
-    def sample(self, t, stim, full=False):
-
-        # np.seterr(over='ignore')  # Ignore overflow warning when calculating r[j+1] which can be very big
+    def sample(self, t, stim=None, shape=(1,), full=False):
 
         dt = get_dt(t)
 
-        if stim.ndim == 1:
-            shape = (len(t), 1)
-            stim = stim.reshape(len(t), 1)
-        else:
-            shape = stim.shape
-
+        shape = (len(t), ) + shape
         r = np.zeros(shape) * np.nan
         eta_conv = np.zeros(shape)
-        mask_spk = np.zeros(shape, dtype=bool)
+        mask_spikes = np.zeros(shape, dtype=bool)
 
         j = 0
         while j < len(t):
@@ -55,17 +48,17 @@ class GLM:
             p_spk = 1. - np.exp(-r[j, ...] * dt)
             aux = np.random.rand(*shape[1:])
 
-            mask_spk[j, ...] = p_spk > aux
+            mask_spikes[j, ...] = p_spk > aux
 
-            if self.eta is not None and np.any(mask_spk[j, ...]) and j < len(t) - 1:
-                eta_conv[j + 1:, mask_spk[j, ...]] += self.eta.interpolate(t[j + 1:] - t[j + 1])[:, None]
+            if self.eta is not None and np.any(mask_spikes[j, ...]) and j < len(t) - 1:
+                eta_conv[j + 1:, mask_spikes[j, ...]] += self.eta.interpolate(t[j + 1:] - t[j + 1])[:, None]
 
             j += 1
-        v = - eta_conv - self.u0
+        u = - eta_conv - self.u0
         if full:
-            return eta_conv, v, r, mask_spk
+            return eta_conv, u, r, mask_spikes
         else:
-            return v, r, mask_spk
+            return u, r, mask_spikes
 
     def simulate_subthreshold(self, t, stim, mask_spk, stim_h=0, full=False):
 
@@ -107,7 +100,10 @@ class GLM:
         g_log_likelihood = np.sum(X[mask_spikes, :], axis=0) - dt * np.einsum('tka,tk->a', X, r)
         h_log_likelihood = - dt * np.einsum('tka,tk,tkb->ab', X, r, X)
 
-        return log_likelihood, g_log_likelihood, h_log_likelihood
+        return log_likelihood, g_log_likelihood, h_log_likelihood, None
+
+    def gh_objective(self,  dt, X, mask_spikes):
+        return self.gh_log_likelihood(dt, X, mask_spikes)
     
     def get_params(self):
         n_kappa = 0 
@@ -117,7 +113,7 @@ class GLM:
         theta[1:] = self.eta.coefs
         return theta
 
-    def get_likelihood_kwargs(self, t, stim, mask_spikes, stim_h=0, newton_kwargs_d=None):
+    def likelihood_kwargs(self, t, mask_spikes, stim=None):
 
         n_kappa = 0
         n_eta = 0 if self.eta is None else self.eta.nbasis
@@ -136,27 +132,23 @@ class GLM:
 
         return likelihood_kwargs
 
+    def objective_kwargs(self, t, mask_spikes, stim=None):
+        return self.likelihood_kwargs(t=t, mask_spikes=mask_spikes, stim=stim)
+
     def set_params(self, theta):
         n_kappa = 0
         self.u0 = theta[0]
         self.eta.coefs = theta[n_kappa + 1:]
         return self
 
-    def fit(self, t, stim, mask_spikes, stim_h=0, newton_kwargs=None, verbose=False, newton_kwargs_d=None, 
-            discriminator='r_sum'):
+    def fit(self, t, mask_spikes, stim=None, newton_kwargs=None, verbose=False):
 
         newton_kwargs = {} if newton_kwargs is None else newton_kwargs
 
-        theta0 = self.get_params()
-        objective_kwargs = self.get_likelihood_kwargs(t, stim, mask_spikes)
-
+        objective_kwargs = self.objective_kwargs(t, mask_spikes)
         gh_objective = partial(self.gh_objective, **objective_kwargs)
 
-        optimizer = NewtonMethod(theta0=theta0, gh_log_prior=gh_log_prior, gh_log_likelihood=gh_log_likelihood,
-                                 verbose=verbose, **newton_kwargs)
+        optimizer = NewtonMethod(model=self, gh_objective=gh_objective, verbose=verbose, **newton_kwargs)
         optimizer.optimize()
-
-        theta = optimizer.theta_iterations[:, -1]
-        self.set_params(theta)
 
         return optimizer

@@ -1,10 +1,7 @@
 import numpy as np
 
-from functools import partial
-
-from icglm.masks import shift_mask
-from icglm.utils.time import get_dt
-from icglm.optimization import NewtonMethod
+from .utils import get_dt, shift_array
+from .optimization import NewtonMethod
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -20,7 +17,7 @@ class DiscriminatorGLM:
     def copy(self):
         return self.__class__(u0=self.u0, eta=self.eta.copy(), beta=self.beta, x0=self.x0)
         
-    def fit(self, t, stim, mask_spikes, X, y, newton_kwargs=None, verbose=False, seed=0):
+    def fit(self, t, mask_spikes, X, y, newton_kwargs=None, verbose=False, seed=0):
 
         newton_kwargs = {} if newton_kwargs is None else newton_kwargs
 
@@ -34,8 +31,8 @@ class DiscriminatorGLM:
         dt = t[1]
         log_likelihood_iterations = []
         theta = np.zeros(X.shape[1] + 1)
-#         theta[1:X.shape[1] + 1] = np.random.rand(X.shape[1])
-#         theta[0] = (np.mean(X[y == 1, :] @ theta[1:]) + np.mean(X[y == 0, :] @ theta[1:])) / 2
+#         theta[1:X_te.shape[1] + 1] = np.random.rand(X_te.shape[1])
+#         theta[0] = (np.mean(X_te[y == 1, :] @ theta[1:]) + np.mean(X_te[y == 0, :] @ theta[1:])) / 2
         for ii in range(max_iterations):
             theta = self.update_theta(theta, dt, X, mask_spikes, y, lr)
             
@@ -65,15 +62,15 @@ class DiscriminatorGLM:
     
     def predict_proba(self, t, stim, mask_spikes, X):
 #         likelihood_kwargs = self.get_likelihood_kwargs(t, stim, mask_spikes)
-#         dt, X, mask_spikes = likelihood_kwargs['dt'], likelihood_kwargs['X'], likelihood_kwargs['mask_spikes']
+#         dt, X_te, mask_spikes = likelihood_kwargs['dt'], likelihood_kwargs['X_te'], likelihood_kwargs['mask_spikes']
         theta = self.get_theta()
 
         a = X @ theta[1:X.shape[1] + 1] - theta[0]
         y_proba = sigmoid(a)
         
-#         u = X @ theta[2:]
-#         r = np.exp(u)
-#         u_spk = np.array([np.sum(u[mask_spikes[:, j], j]) for j in range(mask_spikes.shape[1])])
+#         X_u = X_te @ theta[2:]
+#         r = np.exp(X_u)
+#         u_spk = np.array([np.sum(X_u[mask_spikes[:, j], j]) for j in range(mask_spikes.shape[1])])
 #         a = theta[1] * (u_spk - dt * np.sum(r, 0)) - theta[0]
         
         return y_proba
@@ -129,9 +126,9 @@ class DiscriminatorGLM:
             X = np.zeros(mask_spikes.shape + (1 + n_kappa,))
 
         X[:, :, 0] = -1.
-#         X[:, :, 1:n_kappa + 1] = X_kappa
+#         X_te[:, :, 1:n_kappa + 1] = X_kappa
 
-#         X = X.reshape(-1, 1 + n_kappa + n_eta)
+#         X_te = X_te.reshape(-1, 1 + n_kappa + n_eta)
 #         mask_spikes = mask_spikes.reshape(-1)
 
         likelihood_kwargs = dict(dt=get_dt(t), X=X, mask_spikes=mask_spikes)
