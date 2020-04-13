@@ -2,29 +2,30 @@ from functools import partial
 
 import numpy as np
 
-from .utils import get_dt, shift_array
+from .utils import get_dt
 from .optimization import NewtonMethod
+
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
+
 class Critic:
     
-    def __init__(self, eta=None, beta=None, x0=None):
-        self.u_kernel = eta
-        self.beta = beta
-        self.x0 = x0
-        self.log_likelihood_iterations = []
+    def __init__(self, u_kernel=None):
+        self.u_kernel = u_kernel
+        # self.beta = beta
+        # self.x0 = x0
+        # self.log_likelihood_iterations = []
         
     def copy(self):
-        return self.__class__(eta=self.u_kernel.copy(), beta=self.beta, x0=self.x0)
+        return self.__class__(u_kernel=self.u_kernel.copy())
         
     def fit(self, t, mask_spikes, u, y, newton_kwargs=None, verbose=False):
 
         newton_kwargs = {} if newton_kwargs is None else newton_kwargs
         
         objective_kwargs = self.objective_kwargs(t, mask_spikes, u, y)
-
         gh_objective = partial(self.gh_objective, **objective_kwargs)
 
         optimizer = NewtonMethod(model=self, gh_objective=gh_objective, verbose=verbose, **newton_kwargs)
@@ -54,6 +55,18 @@ class Critic:
 #         self.u0 = theta[2]
         self.u_kernel.coefs = theta[:]
         return self
+
+    def transform(self, t, mask_spikes, u):
+
+        theta = self.get_params()
+        wasserstein_kwargs = self.wasserstein_distance_kwargs(t, mask_spikes, u, None)
+        X_u = wasserstein_kwargs['X_u']
+
+        X_u_theta = np.einsum('tka,a->k', X_u, theta)
+
+        a = X_u_theta
+
+        return a
     
     def gh_wasserstein_distance(self, dt, mask_spikes, X_u, y):
 
@@ -66,7 +79,7 @@ class Critic:
         g_w_distance = np.mean(np.sum(X_u[:, y == 1, :], 0), 0) - np.mean(np.sum(X_u[:, y == 0, :], 0), 0)
         h_w_distance = None
 
-        return w_distance, g_w_distance, h_w_distance
+        return w_distance, g_w_distance, h_w_distance, None
 
     def gh_objective(self,  dt, mask_spikes, X_u, y):
         return self.gh_wasserstein_distance(dt, mask_spikes, X_u, y)
@@ -94,4 +107,4 @@ class Critic:
         return wasserstein_kwargs
 
     def objective_kwargs(self, t, mask_spikes, u, y):
-        return self.wasserstein_distance_kwargs(t=t, mask_spikes=mask_spikes, u=u, y)
+        return self.wasserstein_distance_kwargs(t=t, mask_spikes=mask_spikes, u=u, y=y)

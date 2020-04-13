@@ -8,7 +8,8 @@ from scipy.linalg import solveh_banded
 class NewtonMethod:
 
     def __init__(self, model=None, gh_objective=None, learning_rate=1e-1, initial_learning_rate=None,
-                 max_iterations=200, stop_cond=5e-4, warm_up_iterations=5, verbose=False, use_hessian=True):
+                 max_iterations=200, stop_cond=5e-4, warm_up_iterations=5, verbose=False, use_hessian=True,
+                 clip_theta=None):
 
         self.model = model
         self.learning_rate = learning_rate
@@ -17,6 +18,7 @@ class NewtonMethod:
         self.stop_cond = stop_cond
         self.warm_up_iterations = warm_up_iterations
         self.use_hessian = use_hessian
+        self.clip_theta = clip_theta
         self.verbose = verbose
 
         self.gh_objective = gh_objective
@@ -88,6 +90,9 @@ class NewtonMethod:
                 theta = theta - learning_rate * np.linalg.solve(h_obj, g_obj)
             else:
                 theta = theta + learning_rate * g_obj
+            if self.clip_theta is not None:
+                theta[theta > self.clip_theta] = self.clip_theta
+                theta[theta < -self.clip_theta] = -self.clip_theta
             self.model.set_params(theta)
 
         fitting_time = (time.time() - t0) / 60.
