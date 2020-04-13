@@ -31,7 +31,7 @@ class WGLM(GLM):
         y = np.concatenate((np.ones(n_samples_te), np.zeros(n_samples_fr)))
 
         # print(mask_spikes.shape, u.shape)
-        optimizer = self.critic.fit(t, mask_spikes, u, r, y, newton_kwargs=newton_kwargs_critic)
+        optimizer = self.critic.fit(t, mask_spikes, u, r, y, u0=self.u0, newton_kwargs=newton_kwargs_critic)
         theta_critic = self.critic.get_params()
 
         log_likelihood = np.sum(u_te[mask_spikes_te]) - dt * np.sum(r_te)
@@ -51,13 +51,42 @@ class WGLM(GLM):
 #             g_c_w_distance = g_c_w_distance + np.sum(self.critic.u_kernel.convolve_continuous(t, X_fr), axis=(0, 1)) / n_samples_fr
             ii += len(self.critic.u_kernel.coefs)
     
+        if self.critic.u_spk_kernel is not None:
+#             args_fr = np.where(shift_array(mask_spikes_fr, 1, fill_value=False))
+#             t_spk_fr = (t[args_fr[0]],) + args_fr[1:]
+#             conv_u_spk_fr = self.critic.u_spk_kernel.convolve_discrete(t, t_spk_fr) # TODO CORRECT SO I PASS SHAPE
+            conv_u_spk_fr = self.critic.u_spk_kernel.convolve_continuous(t, shift_array(mask_spikes_fr, 1, fill_value=False))
+            g_fr = np.sum(conv_u_spk_fr[..., None] * X_fr[..., 1:], axis=(0, 1)) / n_samples_fr
+            
+#             args_te = np.where(shift_array(mask_spikes_te, 1, fill_value=False))
+#             t_spk_te = (t[args_te[0]],) + args_te[1:]
+#             conv_u_spk_te = self.critic.u_spk_kernel.convolve_discrete(t, t_spk_te)
+            conv_u_spk_te = self.critic.u_spk_kernel.convolve_continuous(t, shift_array(mask_spikes_te, 1, fill_value=False))
+            g_te = np.sum(conv_u_spk_te[..., None] * X_te[..., 1:], axis=(0, 1)) / n_samples_te
+            
+            g_c_w_distance[1:] = g_c_w_distance[1:] + (g_fr - g_te)
+            ii += len(self.critic.u_spk_kernel.coefs)
+    
         if self.critic.r_kernel is not None:
-            g_fr = np.sum(self.critic.r_kernel.convolve_continuous(t, X_fr * np.exp(r_fr)[..., None]), axis=(0, 1)) / n_samples_fr
-            h_fr = np.sum(self.critic.r_kernel.convolve_continuous(t, np.einsum('tka,tkb->tkab', X_fr, X_fr) * np.exp(r_fr)[..., None, None]), axis=(0, 1)) / n_samples_fr
-            g_te = np.sum(self.critic.r_kernel.convolve_continuous(t, X_te * np.exp(r_te)[..., None]), axis=(0, 1)) / n_samples_te
-            h_te = np.sum(self.critic.r_kernel.convolve_continuous(t, np.einsum('tka,tkb->tkab', X_te, X_te) * np.exp(r_te)[..., None, None]), axis=(0, 1)) / n_samples_te
+            g_fr = np.sum(self.critic.r_kernel.convolve_continuous(t, X_fr * r_fr[..., None]), axis=(0, 1)) / n_samples_fr
+            h_fr = np.sum(self.critic.r_kernel.convolve_continuous(t, np.einsum('tka,tkb->tkab', X_fr, X_fr) * r_fr[..., None, None]), axis=(0, 1)) / n_samples_fr
+            g_te = np.sum(self.critic.r_kernel.convolve_continuous(t, X_te * r_te[..., None]), axis=(0, 1)) / n_samples_te
+            h_te = np.sum(self.critic.r_kernel.convolve_continuous(t, np.einsum('tka,tkb->tkab', X_te, X_te) * r_te[..., None, None]), axis=(0, 1)) / n_samples_te
             g_c_w_distance = g_c_w_distance + (g_fr - g_te)
             h_c_w_distance = h_c_w_distance + (h_fr - h_te)
+            
+        if self.critic.r_spk_kernel is not None:
+            conv_u_spk_fr = self.critic.r_spk_kernel.convolve_continuous(t, shift_array(mask_spikes_fr, 1, fill_value=False))
+            g_fr = np.sum(conv_u_spk_fr[..., None] * X_fr * r_fr[..., None], axis=(0, 1)) / n_samples_fr
+            h_fr = np.sum(np.einsum('tka,tkb->tkab', X_fr, X_fr) * (r_fr * conv_u_spk_fr)[..., None, None], axis=(0, 1)) / n_samples_fr
+            
+            conv_u_spk_te = self.critic.r_spk_kernel.convolve_continuous(t, shift_array(mask_spikes_te, 1, fill_value=False))
+            g_te = np.sum(conv_u_spk_te[..., None] * X_te * r_te[..., None], axis=(0, 1)) / n_samples_te
+            h_te = np.sum(np.einsum('tka,tkb->tkab', X_te, X_te) * (r_te * conv_u_spk_te)[..., None, None], axis=(0, 1)) / n_samples_te
+            
+            g_c_w_distance = g_c_w_distance + (g_fr - g_te)
+            h_c_w_distance = h_c_w_distance + (h_fr - h_te)
+            ii += len(self.critic.r_spk_kernel.coefs)
             
         if 'r_spk' in self.critic.features:
             X_r_fr_spk = np.array([np.einsum('ta,t->a', X_fr[mask_spikes_fr[:, sw], sw, :], r_fr[mask_spikes_fr[:, sw], sw]) for sw in range(n_samples_fr)])
