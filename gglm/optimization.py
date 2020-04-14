@@ -85,7 +85,7 @@ class NewtonMethod:
                 learning_rate = self.learning_rate
             else:
                 learning_rate = self.initial_learning_rate
-
+#             print(learning_rate)
             if self.use_hessian:
                 theta = theta - learning_rate * np.linalg.solve(h_obj, g_obj)
             else:

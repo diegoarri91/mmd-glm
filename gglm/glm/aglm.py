@@ -1,20 +1,23 @@
 from functools import partial
 import pickle
-import sys
-sys.path.append("/home/diego/Dropbox/hold_noise/iclamp-glm/")
+# import sys
+# sys.path.append("/home/diego/Dropbox/hold_noise/iclamp-glm/")
 
 import numpy as np
 from sklearn.metrics import recall_score
 
 # from icglm.models.base import BayesianSpikingModel
+from .base import GLM
 from gglm.optimization import NewtonMethod
-from icglm.masks import shift_mask
-from icglm.utils.time import get_dt
+
+from ..utils import get_dt, shift_array
+# from icglm.masks import shift_mask
+# from icglm.utils.time import get_dt
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
-class AdversarialGLM:
+class AdversarialGLM(GLM):
 
     def __init__(self, u0, eta, discriminator, discriminator_features=None, c2=True, mu=None, sd=None):
         self.u0 = u0
@@ -49,74 +52,12 @@ class AdversarialGLM:
         glm = cls(u0=params['u0'], kappa=params['kappa'], eta=params['eta'])
         return glm
 
-    def sample(self, t, stim, full=False):
-
-        # np.seterr(over='ignore')  # Ignore overflow warning when calculating r[j+1] which can be very big
-
-        dt = get_dt(t)
-
-        if stim.ndim == 1:
-            shape = (len(t), 1)
-            stim = stim.reshape(len(t), 1)
-        else:
-            shape = stim.shape
-
-        r = np.zeros(shape) * np.nan
-        eta_conv = np.zeros(shape)
-        mask_spk = np.zeros(shape, dtype=bool)
-
-        j = 0
-        while j < len(t):
-
-            r[j, ...] = np.exp(-eta_conv[j, ...] - self.u0)
-
-            p_spk = 1. - np.exp(-r[j, ...] * dt)
-            aux = np.random.rand(*shape[1:])
-
-            mask_spk[j, ...] = p_spk > aux
-
-            if self.eta is not None and np.any(mask_spk[j, ...]) and j < len(t) - 1:
-                eta_conv[j + 1:, mask_spk[j, ...]] += self.eta.interpolate(t[j + 1:] - t[j + 1])[:, None]
-
-            j += 1
-        v = - eta_conv - self.u0
-        if full:
-            return eta_conv, v, r, mask_spk
-        else:
-            return v, r, mask_spk
-
-    def simulate_subthreshold(self, t, stim, mask_spk, stim_h=0, full=False):
-
-        if stim.ndim == 1:
-            # shape = (len(t), 1)
-            stim = stim.reshape(len(t), 1)
-        if mask_spk.ndim == 1:
-            # shape = (len(t), 1)
-            mask_spk = mask_spk.reshape(len(t), 1)
-
-        shape = mask_spk.shape
-        dt = get_dt(t)
-        arg_spikes = np.where(shift_mask(mask_spk, 1, fill_value=False))
-        t_spikes = (t[arg_spikes[0]], arg_spikes[1])
-
-        if self.eta is not None and len(t_spikes[0]) > 0:
-            eta_conv = self.eta.convolve_discrete(t, t_spikes, shape=shape[1:])
-        else:
-            eta_conv = np.zeros(shape)
-
-        v = - eta_conv - self.u0
-        r = np.exp(v)
-
-        if full:
-            return eta_conv, v, r
-        else:
-            return v, r
-
     def use_prior_kernels(self):
         return False
 
-    def gh_log_likelihood_r_sum(self, theta, dt, X=None, mask_spikes=None, newton_kwargs_d=None):
+    def gh_log_likelihood_r_sum(self, dt, X=None, mask_spikes=None, newton_kwargs_d=None):
 
+        theta = self.get_params()
         X_te = X.copy()
         u_te = np.einsum('ijk,k->ij', X_te, theta)
         r_te = np.exp(u_te)
@@ -125,17 +66,18 @@ class AdversarialGLM:
         
         t = np.arange(mask_spikes_te.shape[0]) * dt
         n_fr = 100
-        stim = np.zeros((len(t), n_fr))
+#         stim = np.zeros((len(t), n_fr))
   
         n_discriminator_iterations, lr = newton_kwargs_d['max_iterations'], newton_kwargs_d['learning_rate']
         lam_ml, lam_d = newton_kwargs_d['lam_ml'], newton_kwargs_d['lam_d']
         standardize = newton_kwargs_d['standardize']
         warm_up_iterations = newton_kwargs_d['warm_up_iterations']
 
-        aglm = AdversarialGLM(u0=theta[0], eta=self.eta.copy(), discriminator=None)
-        aglm.eta.coefs = theta[1:]
-        u_fr, r_fr, mask_spikes_fr = aglm.sample(t, stim)
-        X_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)['X_te']
+#         aglm = AdversarialGLM(u0=theta[0], eta=self.eta.copy(), discriminator=None)
+#         aglm.eta.coefs = theta[1:]
+        u_fr, r_fr, mask_spikes_fr = self.sample(t, shape=(n_fr,))
+        X_fr = self.get_likelihood_kwargs(t, np.zeros(mask_spikes_fr.shape), mask_spikes_fr)['X']
+#         print(mask_spikes_te.shape, mask_spikes_fr.shape)
         
         r = np.concatenate((r_te, r_fr), axis=1)
         mask_discriminator = np.concatenate((mask_spikes_te.copy(), mask_spikes_fr.copy()), axis=1)
@@ -159,6 +101,8 @@ class AdversarialGLM:
         if len(self.c_iterations) > warm_up_iterations:
             for k in range(n_discriminator_iterations):
                 theta_d = self.discriminator.update_theta(theta_d, dt, X_discriminator, mask_discriminator, y, lr)
+            
+#         print(X_discriminator.shape, mask_discriminator.shape, y.shape)
         log_l_d, _ = self.discriminator.gh_log_likelihood(theta_d, dt, X_discriminator, mask_discriminator, y)
         self.discriminator.log_likelihood_iterations.append(log_l_d)
         self.discriminator = self.discriminator.set_params(theta_d)
@@ -179,7 +123,7 @@ class AdversarialGLM:
         
         self.c_iterations.append(lam_d * c_pf)
 
-        return log_likelihood, g_log_likelihood, h_log_likelihood
+        return log_likelihood, g_log_likelihood, h_log_likelihood, None
     
     def gh_discriminator_terms(self, t, X_discriminator, mask_spikes_fr, mask_spikes_te, X_fr, X_te, r_fr, r_te, n_te):
         eps = 1e-20
@@ -241,14 +185,6 @@ class AdversarialGLM:
             ii += 1
         return X_discriminator
 
-    def get_theta(self):
-        n_kappa = 0 
-        n_eta = 0 if self.eta is None else self.eta.nbasis
-        theta = np.zeros((1 + n_kappa + n_eta))
-        theta[0] = self.u0
-        theta[1:] = self.eta.coefs
-        return theta
-
     def get_likelihood_kwargs(self, t, stim, mask_spikes, stim_h=0, newton_kwargs_d=None):
 
         n_kappa = 0
@@ -258,7 +194,7 @@ class AdversarialGLM:
         X[:, :, 0] = -1.
 
         if self.eta is not None:
-            args = np.where(shift_mask(mask_spikes, 1, fill_value=False))
+            args = np.where(shift_array(mask_spikes, 1, fill_value=False))
             t_spk = (t[args[0]],) + args[1:]
             n_eta = self.eta.nbasis
             X_eta = self.eta.convolve_basis_discrete(t, t_spk, shape=mask_spikes.shape)
@@ -279,21 +215,20 @@ class AdversarialGLM:
         
         newton_kwargs = {} if newton_kwargs is None else newton_kwargs
 
-        theta0 = self.get_theta()
+#         theta0 = self.get_params()
         likelihood_kwargs = self.get_likelihood_kwargs(t, stim, mask_spikes, stim_h=stim_h, newton_kwargs_d=newton_kwargs_d)
 
-        gh_log_prior = None if not(self.use_prior_kernels()) else self.gh_log_prior_kernels
+#         gh_log_prior = None if not(self.use_prior_kernels()) else self.gh_log_prior_kernels
         if discriminator == 'r_sum':
             gh_log_likelihood = partial(self.gh_log_likelihood_r_sum, **likelihood_kwargs)
         else:
             gh_log_likelihood = partial(self.gh_log_likelihood_kernels, **likelihood_kwargs)
 
-        optimizer = NewtonMethod(theta0=theta0, gh_log_prior=gh_log_prior, gh_log_likelihood=gh_log_likelihood,
-                                 verbose=verbose, **newton_kwargs)
+        optimizer = NewtonMethod(model=self, gh_objective=gh_log_likelihood, verbose=verbose, **newton_kwargs)
         optimizer.optimize()
 
-        theta = optimizer.theta_iterations[:, -1]
-        self.set_params(theta)
+#         theta = optimizer.theta_iterations[:, -1]
+#         self.set_params(theta)
 
         return optimizer
     
