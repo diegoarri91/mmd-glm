@@ -168,11 +168,18 @@ class Critic:
 #             print(np.mean(a[y==1]))
             g_w_distance.append(np.mean(np.sum(X_r[:, y == 1, :], 0), 0) - np.mean(np.sum(X_r[:, y == 0, :], 0), 0))
             ii += len(self.r_kernel.coefs)
-    
+        
+        # dot 
+#         if X_r_spk is not None:
+#             X_r_spk_theta = np.einsum('tka,a->k', X_r_spk, theta[ii:ii + len(self.r_spk_kernel.coefs)])
+#             a = a + X_r_spk_theta
+#             g_w_distance.append(np.mean(np.sum(X_r_spk[:, y == 1, :], 0), 0) - np.mean(np.sum(X_r_spk[:, y == 0, :], 0), 0))
+#             ii += len(self.r_spk_kernel.coefs)
+            
+        # residuals 
         if X_r_spk is not None:
-            X_r_spk_theta = np.einsum('tka,a->k', X_r_spk, theta[ii:ii + len(self.r_spk_kernel.coefs)])
+            X_r_spk_theta = np.einsum('tka,a->k', X_r_spk, theta[ii:ii + len(self.r_spk_kernel.coefs)]) - r
             a = a + X_r_spk_theta
-#             print(np.mean(a[y==1]))
             g_w_distance.append(np.mean(np.sum(X_r_spk[:, y == 1, :], 0), 0) - np.mean(np.sum(X_r_spk[:, y == 0, :], 0), 0))
             ii += len(self.r_spk_kernel.coefs)
             
@@ -223,25 +230,24 @@ class Critic:
             X_r = self.r_kernel.convolve_basis_continuous(t, r)
         else:
             X_r = None
-        
+
+        # dot
 #         if self.r_spk_kernel is not None:
-#             n_r_spk_kernel = self.r_spk_kernel.nbasis
-#             _r = r.copy()
-#             _r[~mask_spikes] = 0
-#             X_r_spk = self.r_spk_kernel.convolve_basis_continuous(t, _r)
+#             args = np.where(shift_array(mask_spikes, 1, fill_value=False))
+#             t_spk = (t[args[0]],) + args[1:]
+#             X_r_spk = self.r_spk_kernel.convolve_basis_discrete(t, t_spk, shape=mask_spikes.shape)
+#             X_r_spk = X_r_spk * r[..., None]
 #         else:
 #             X_r_spk = None
-
+        
+        # residuals
         if self.r_spk_kernel is not None:
             args = np.where(shift_array(mask_spikes, 1, fill_value=False))
             t_spk = (t[args[0]],) + args[1:]
             X_r_spk = self.r_spk_kernel.convolve_basis_discrete(t, t_spk, shape=mask_spikes.shape)
-#             print(u0, np.median(u))
-            X_r_spk = X_r_spk * r[..., None]
         else:
             X_r_spk = None
         
-#         r_spk = np.array([np.sum(r[mask_spikes[:, sw], sw]) for sw in range(mask_spikes.shape[1])]) if 'r_spk' in self.features else None
         r_spk = None if 'r_spk' not in self.features else np.array([np.sum(r[mask_spikes[:, sw], sw]) for sw in range(mask_spikes.shape[1])])
 
         wasserstein_kwargs = dict(dt=get_dt(t), mask_spikes=mask_spikes, X_u=X_u, X_u_spk=X_u_spk, r_spk=r_spk, X_r=X_r, 
