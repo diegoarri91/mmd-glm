@@ -1,7 +1,8 @@
 import numpy as np
 import torch
+from torch.autograd import Variable
 from torch.nn import Parameter
-from torch.optim import Adam
+from torch.optim import Adam, LBFGS
 
 from .base import GLM
 from ..utils import get_dt, shift_array
@@ -9,111 +10,87 @@ from ..utils import get_dt, shift_array
 
 class WGLM(GLM, torch.nn.Module):
 
-    def __init__(self, u0, eta, critic):
-#         super().__init__(u0=u0, eta=eta)
-#         torch.nn.Module.__init__()
-#         self.__init__()
+    def __init__(self, u0, eta, critic, critic_inputs):
         torch.nn.Module.__init__(self)
         GLM.__init__(self, u0=u0, eta=eta)
         self.critic = critic
         theta_g = torch.cat((torch.tensor([u0]).double(), torch.from_numpy(eta.coefs).double()), dim=0)
         self.register_parameter("theta_g", Parameter(theta_g))
+        self.critic_inputs = critic_inputs
     
-    def forward(self, t, mask_spikes_te, X_te, X_r_spk_te, y, lam_w, n_batch_fr, lr_c, num_epochs_c):
+    def critic_input_x(self, u, r, mask_spikes):
+        if self.critic_inputs == 'mask_spikesu':
+            x = torch.stack((mask_spikes.T, u.T), dim=1)
+        elif self.critic_inputs == 'u':
+            x = u.T[:, None, :]
+        return x
+    
+    def forward(self, t, mask_spikes_te, X_te, y, lam_w, n_batch_fr, lr_c, num_epochs_c):
         
         dt = get_dt(t)
         self.theta_g.requires_grad = True
-        self.critic.theta.requires_grad = True
-        self.critic.theta2.requires_grad = True
-
+        self.critic.set_requires_grad(True)
+            
 #             u_te, r_te = self.simulate_subthreshold(t, np.zeros(tuple(mask_spikes_te.shape)), mask_spikes_te.numpy())
         n_batch_te = mask_spikes_te.shape[1]
         u_te = torch.einsum('tka,a->tk', X_te, self.theta_g)
         r_te = torch.exp(u_te)
         
         u_fr, r_fr, mask_spikes_fr = self.sample(t, shape=(n_batch_fr,))
+        n_spikes = np.mean(np.sum(mask_spikes_fr, 0))
         X_fr = torch.from_numpy(self.objective_kwargs(t, mask_spikes_fr)['X_te'])
         u_fr = torch.einsum('tka,a->tk', X_fr, self.theta_g)
         r_fr = torch.exp(u_fr)
             
         mask_spikes_fr = torch.from_numpy(mask_spikes_fr)
-        mask_spikes = torch.cat((mask_spikes_te, mask_spikes_fr), dim=1)
-        u = torch.cat((u_te, u_fr), dim=1)
-        r = torch.cat((r_te, r_fr), dim=1)
-        self.critic.get_conv_r_spikes(t, mask_spikes_fr)     
-        self.critic.X_r_spk = torch.cat((X_r_spk_te, self.critic.X_r_spk), dim=1)
+        mask_spikes = torch.cat((mask_spikes_te, mask_spikes_fr), dim=1).double()
+        u = torch.cat((u_te, u_fr), dim=1).double()
+        r = torch.cat((r_te, r_fr), dim=1).double()
+        if self.critic_inputs == 'mask_spikesu':
+            x = torch.stack((mask_spikes.T, u.T), dim=1)
+        elif self.critic_inputs == 'u':
+            x = u.T[:, None, :]
             
         self.theta_g.requires_grad = False
 
-        _neg_w_distance = self.critic.train(t, mask_spikes, u, r, y, lam_w, lr=lr_c, num_epochs=num_epochs_c, verbose=False)
+        _neg_w_distance = self.critic.train(x, y, lam_w, lr=lr_c, num_epochs=num_epochs_c, verbose=False)
 
         self.theta_g.requires_grad = True
-        self.critic.theta.requires_grad = False
-        self.critic.theta2.requires_grad = False
+        self.critic.set_requires_grad(False)
 
-          # zero gradient
-        w_distance = self.critic.forward(t, mask_spikes, u, r, y, lam_w, neg=False)
+        output = self.critic(x)
+        w_distance = self.critic.w_distance(output, y, lam_w, neg=False)
         neg_log_likelihood = -(torch.sum(u_te[mask_spikes_te]) - dt * torch.sum(r_te))
         loss = neg_log_likelihood + w_distance  # compute wasserstein distance      
         
-        return loss, w_distance, _neg_w_distance
+        return loss, w_distance, _neg_w_distance, n_spikes
     
     def train(self, t, mask_spikes, y, lam_w=1e0, lr_g=1e-3, lr_c=1e-2, num_epochs=20, num_epochs_c=10, n_batch_fr=100, verbose=False):
-        optim = Adam(self.parameters(), lr=lr_g)  # optimizer
+        optim = Adam(self.parameters(), lr=lr_g)
         mask_spikes_te = mask_spikes.clone()
         n_batch_te = mask_spikes_te.shape[1]
         dt = torch.tensor([get_dt(t)])
-#         optim_critic = Adam(self.parameters(), lr=lr_c)  # optimizer
-        loss = []
-        w_distance = []
-        neg_w_distance = []
+        loss, w_distance, neg_w_distance, n_spikes = [], [], [], []
         X_te = torch.from_numpy(self.objective_kwargs(t, mask_spikes_te)['X_te'])
-        self.critic.get_conv_r_spikes(t, mask_spikes)
-        X_r_spk_te = self.critic.X_r_spk.clone()
         _loss = torch.tensor([np.nan])
-#         for epoch in tqdm(range(num_epochs)):
         for epoch in range(num_epochs):
             if verbose:
                 print('\r', 'epoch', epoch, 'of', num_epochs, 
                       'loss', np.round(_loss.item(), 4), end='')
             
             optim.zero_grad()
-            _loss, _w_distance, _neg_w_distance = self.forward(t, mask_spikes, X_te, X_r_spk_te, y, lam_w=lam_w, n_batch_fr=n_batch_fr, 
+            _loss, _w_distance, _neg_w_distance, _n_spikes = self(t, mask_spikes, X_te, y, lam_w=lam_w, n_batch_fr=n_batch_fr, 
                                                                    lr_c=lr_c, num_epochs_c=num_epochs_c)
             _loss.backward()  # compute gradient
-            optim.step()  # take gradient step
+            optim.step()
             self.set_params(self.theta_g.data.detach().numpy())
             loss.append(_loss.item())
             neg_w_distance += _neg_w_distance
             w_distance.append(_w_distance.item())
+            n_spikes.append(_n_spikes)
             
         self.set_params(self.theta_g.data.detach().numpy())
-        return loss, w_distance, neg_w_distance
-    
-#     def forward(self, dt, u_te, r_te, mask_spikes_te):
-        """Compute log-likelihood + wasserstein distance distance"""
-
-#         a = self.critic.transform(t, mask_spikes, r, y)
-        
-#         theta_g = torch.from_numpy(self.get_params())
-        
-#         n_samples_te = u_te.shape[1]
-#         t = np.arange(X_te.shape[0]) * dt
-
-#         u_te = torch.einsum('tka,a->tk', X_te, self.theta_g)
-#         r_te = torch.exp(u_te)
-        
-#         u_fr = torch.einsum('tka,a->tk', X_fr, self.theta_g)
-#         r_fr = torch.exp(u_fr)
-        
-#         mask_spikes = torch.cat((mask_spikes_te, mask_spikes_fr), axis=1)
-#         u = torch.cat((u_te, u_fr), axis=1)
-#         r = torch.cat((r_te, r_fr), axis=1)
-#         y = torch.cat((torch.ones(n_samples_te), torch.zeros(n_samples_fr)))
-        
-#         neg_log_likelihood = -(torch.sum(u_te[mask_spikes_te]) - dt * torch.sum(r_te))
-
-#         return neg_log_likelihood
+        return loss, w_distance, neg_w_distance, n_spikes
 
     def objective_kwargs(self, t, mask_spikes, stim=None, n_samples_fr=100, newton_kwargs_critic=None):
 
