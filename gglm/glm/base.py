@@ -130,8 +130,10 @@ class GLM:
         n_eta = 0 if self.eta is None else self.eta.nbasis
         theta = np.zeros(1 + n_kappa + n_eta)
         theta[0] = self.u0
-        theta[1:1 + n_kappa] = self.kappa.coefs
-        theta[1 + n_kappa:] = self.eta.coefs
+        if self.kappa is not None:
+            theta[1:1 + n_kappa] = self.kappa.coefs
+        if self.eta is not None:
+            theta[1 + n_kappa:] = self.eta.coefs
         return theta
 
     def likelihood_kwargs(self, t, mask_spikes, stim=None):
@@ -167,8 +169,10 @@ class GLM:
     def set_params(self, theta):
         n_kappa = 0 if self.kappa is None else self.kappa.nbasis
         self.u0 = theta[0]
-        self.kappa.coefs = theta[1:1 + n_kappa]
-        self.eta.coefs = theta[1 + n_kappa:]
+        if self.kappa is not None:
+            self.kappa.coefs = theta[1:1 + n_kappa]
+        if self.eta is not None:
+            self.eta.coefs = theta[1 + n_kappa:]
         return self
 
     def fit(self, t, mask_spikes, stim=None, newton_kwargs=None, verbose=False):
