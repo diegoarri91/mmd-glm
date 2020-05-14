@@ -7,12 +7,16 @@ from torch.optim import Adam, LBFGS
 from .base import GLM
 from ..utils import get_dt, shift_array
 
+dic_nonlinearities = {'exp': lambda x: torch.exp(x), 'log_exp': lambda x: torch.log(1 + torch.exp(x))}
 
 class MMDGLM(GLM, torch.nn.Module):
 
-    def __init__(self, u0=0, kappa=None, eta=None):
+    def __init__(self, u0=0, kappa=None, eta=None, non_linearity='exp'):
         torch.nn.Module.__init__(self)
-        GLM.__init__(self, u0=u0, kappa=kappa, eta=eta)
+        GLM.__init__(self, u0=u0, kappa=kappa, eta=eta, non_linearity=non_linearity)
+        self.non_linearity_torch = dic_nonlinearities[non_linearity]
+#         if non_linearity == 'exp':
+#             self.non_linearity_torch = torch.exp
         
         n_kappa = 0 if self.kappa is None else self.kappa.nbasis
         n_eta = 0 if self.eta is None else self.eta.nbasis
@@ -24,7 +28,6 @@ class MMDGLM(GLM, torch.nn.Module):
             theta_g[1 + n_kappa:] = torch.from_numpy(eta.coefs)
         theta_g = theta_g.double()
         self.register_parameter("theta_g", Parameter(theta_g))
-
     
     def forward(self, t, mask_spikes_te, X_te, y, distance, stim, lam_mmd, n_batch_fr, mmd_kwargs):
         
@@ -33,7 +36,7 @@ class MMDGLM(GLM, torch.nn.Module):
         
         n_batch_te = mask_spikes_te.shape[1]
         u_te = torch.einsum('tka,a->tk', X_te, self.theta_g)
-        r_te = torch.exp(u_te)
+        r_te = self.non_linearity_torch(u_te)
         
         if stim is not None:
             u_fr, r_fr, mask_spikes_fr = self.sample(t, stim=stim)
@@ -43,7 +46,7 @@ class MMDGLM(GLM, torch.nn.Module):
         n_spikes = np.mean(np.sum(mask_spikes_fr, 0))
         X_fr = torch.from_numpy(self.objective_kwargs(t, mask_spikes_fr, stim=stim)['X'])
         u_fr = torch.einsum('tka,a->tk', X_fr, self.theta_g)
-        r_fr = torch.exp(u_fr)
+        r_fr = self.non_linearity_torch(u_fr)
             
         mask_spikes_fr = torch.from_numpy(mask_spikes_fr)
         mask_spikes = torch.cat((mask_spikes_te, mask_spikes_fr), dim=1).double()
@@ -51,24 +54,16 @@ class MMDGLM(GLM, torch.nn.Module):
         r = torch.cat((r_te, r_fr), dim=1).double()
         
         mmd = self.mmd(r, mask_spikes, y, lam_mmd, distance=distance, **mmd_kwargs)
-        neg_log_likelihood = -(torch.sum(u_te[mask_spikes_te]) - dt * torch.sum(r_te))
+#         neg_log_likelihood = -(torch.sum(u_te[mask_spikes_te]) - dt * torch.sum(r_te))
+        neg_log_likelihood = -(torch.sum(torch.log(1 - torch.exp(-dt * r_te[mask_spikes_te]))) - dt * torch.sum(r_te[~mask_spikes_te]))
         loss = neg_log_likelihood + mmd  # compute wasserstein distance      
         
         return loss, mmd, n_spikes
     
     def mmd(self, r, mask_spikes, y, lam, distance=None, kernel=None, **kwargs):
         
-#         r_te, r_fr = r[:, y == 1], r[:, y == 0]
-#         n_batch_te, n_batch_fr = r_te.shape[1], r_fr.shape[1]
-#         r_sum_te, r_sum_fr = torch.sum(r_te, 1), torch.sum(r_fr, 1)
-        
-        # match average over trials. using linearity I avoid computing all products
         if distance is not None:
             d = lam * distance(r, mask_spikes, y)
-#         norm2_te = (torch.sum(r_sum_te**2) - torch.sum(r_te**2)) / (n_batch_te * (n_batch_te - 1))
-#         norm2_fr = (torch.sum(r_sum_fr**2) - torch.sum(r_fr**2)) / (n_batch_fr * (n_batch_fr - 1))
-#         mean_dot = torch.sum(r_sum_te * r_sum_fr, 0) / (n_batch_te * n_batch_fr)
-#         distance = lam * (norm2_te + norm2_fr - 2 * mean_dot)
         
         # match average over trials. computing all products (for testing)
 #         norm2_te, norm2_fr, mean_dot = 0, 0, 0
@@ -98,9 +93,9 @@ class MMDGLM(GLM, torch.nn.Module):
         
         return d
     
-    def train(self, t, mask_spikes, y, distance, stim=None, lam_mmd=1e0, lr=1e-3, num_epochs=20, n_batch_fr=100, verbose=False,
+    def train(self, t, mask_spikes, y, distance, stim=None, lam_mmd=1e0, optim_pars=None, num_epochs=20, n_batch_fr=100, verbose=False,
               mmd_kwargs=None):
-        optim = Adam(self.parameters(), lr=lr)
+        optim = Adam(self.parameters(), **optim_pars)
         mask_spikes_te = mask_spikes.clone()
         n_batch_te = mask_spikes_te.shape[1]
         dt = torch.tensor([get_dt(t)])
@@ -114,7 +109,8 @@ class MMDGLM(GLM, torch.nn.Module):
                       'loss', np.round(_loss.item(), 4), end='')
             
             optim.zero_grad()
-            _loss, _mmd, _n_spikes = self(t, mask_spikes, X_te, y, distance, stim=stim, lam_mmd=lam_mmd, n_batch_fr=n_batch_fr, mmd_kwargs=mmd_kwargs)
+            _loss, _mmd, _n_spikes = self(t, mask_spikes, X_te, y, distance, stim=stim, lam_mmd=lam_mmd, 
+                                          n_batch_fr=n_batch_fr, mmd_kwargs=mmd_kwargs)
             _loss.backward()
             optim.step()
             self.set_params(self.theta_g.data.detach().numpy())
@@ -124,24 +120,4 @@ class MMDGLM(GLM, torch.nn.Module):
             
         self.set_params(self.theta_g.data.detach().numpy())
         return loss, mmd, n_spikes
-
-#     def objective_kwargs(self, t, mask_spikes, stim=None, n_samples_fr=100, newton_kwargs_critic=None):
-
-#         n_kappa = 0
-#         n_eta = 0 if self.eta is None else self.eta.nbasis
-
-#         X_te = np.zeros(mask_spikes.shape + (1 + n_kappa + n_eta,))
-#         X_te[:, :, 0] = -1.
-
-#         if self.eta is not None:
-#             args = np.where(shift_array(mask_spikes, 1, fill_value=False))
-#             t_spk = (t[args[0]],) + args[1:]
-#             n_eta = self.eta.nbasis
-#             X_eta = self.eta.convolve_basis_discrete(t, t_spk, shape=mask_spikes.shape)
-#             X_te[:, :, n_kappa + 1:] = -X_eta
-
-#         obj_kwargs = dict(dt=get_dt(t), X_te=X_te, mask_spikes_te=mask_spikes, n_samples_fr=n_samples_fr,
-#                           newton_kwargs_critic=newton_kwargs_critic)
-
-#         return obj_kwargs
 
