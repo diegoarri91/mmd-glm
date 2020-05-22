@@ -20,19 +20,25 @@ class MMDGLM(GLM, torch.nn.Module):
         
         n_kappa = 0 if self.kappa is None else self.kappa.nbasis
         n_eta = 0 if self.eta is None else self.eta.nbasis
-        theta_g = torch.zeros(1 + n_kappa + n_eta)
-        theta_g[0] = torch.tensor([u0])
+#         theta_g = torch.zeros(1 + n_kappa + n_eta)
+#         theta_g[0] = torch.tensor([u0])
+        b = torch.tensor([u0]).double()
+        kappa_coefs = torch.zeros(n_kappa + n_eta).double()
         if self.kappa is not None:
-            theta_g[1:1 + n_kappa] = torch.from_numpy(kappa.coefs)
+#             theta_g[1:1 + n_kappa] = torch.from_numpy(kappa.coefs)
+            kappa_coefs[:n_kappa] = torch.from_numpy(kappa.coefs)
         if self.eta is not None:
-            theta_g[1 + n_kappa:] = torch.from_numpy(eta.coefs)
-        theta_g = theta_g.double()
-        self.register_parameter("theta_g", Parameter(theta_g))
+            kappa_coefs[n_kappa:] = torch.from_numpy(eta.coefs)
+#         theta_g = theta_g.double()
+#         self.register_parameter("theta_g", Parameter(theta_g))
+        self.register_parameter("b", Parameter(b))
+        self.register_parameter("kappa_coefs", Parameter(kappa_coefs))
     
     def forward(self, t, mask_spikes, phi_d=None, gramian_d_d=None, phi=None, kernel=None, stim=None, n_batch_fr=None, lam_mmd=1):
         
         dt = get_dt(t)
-        self.theta_g.requires_grad = True
+#         self.theta_g.requires_grad = True
+        theta_g = torch.cat((self.b, self.kappa_coefs))
         
 #         u_dc = torch.einsum('tka,a->tk', X_dc, self.theta_g)
 #         r_dc = self.non_linearity_torch(u_dc)
@@ -49,7 +55,7 @@ class MMDGLM(GLM, torch.nn.Module):
 #         print(mask_spikes_fr.shape)
         X_fr = torch.from_numpy(self.objective_kwargs(t, mask_spikes_fr, stim=stim)['X'])
 #         print(X_fr.shape, stim.shape)
-        u_fr = torch.einsum('tka,a->tk', X_fr, self.theta_g)
+        u_fr = torch.einsum('tka,a->tk', X_fr, theta_g)
         r_fr = self.non_linearity_torch(u_fr)
         mask_spikes_fr = torch.from_numpy(mask_spikes_fr)
         
@@ -225,7 +231,8 @@ class MMDGLM(GLM, torch.nn.Module):
             _loss.backward()
 #             print('\ngrad2', self.theta_g.grad)
             optim.step()
-            self.set_params(self.theta_g.data.detach().numpy())
+            theta_g = torch.cat([self.b, self.kappa_coefs])
+            self.set_params(theta_g.data.detach().numpy())
             
             loss.append(_loss.item())
 #             nll.append(_nll.item())
@@ -234,8 +241,6 @@ class MMDGLM(GLM, torch.nn.Module):
             
         if metrics is None:
             metrics_list = None
-            
-        self.set_params(self.theta_g.data.detach().numpy())
         
         return loss, mmd, metrics_list
 
