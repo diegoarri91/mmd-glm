@@ -33,7 +33,7 @@ class NewtonMethod:
     def optimize(self):
 
         theta = self.model.get_params()
-        
+
         status = ''
         converged = nan_parameters = False
 
@@ -87,6 +87,7 @@ class NewtonMethod:
                 learning_rate = self.initial_learning_rate
 #             print(learning_rate)
             if self.use_hessian:
+#                 theta[:1 + self.model.kappa.nbasis] = theta[:1 + self.model.kappa.nbasis] - learning_rate * np.linalg.solve(h_obj, g_obj)[:1 + self.model.kappa.nbasis]
                 theta = theta - learning_rate * np.linalg.solve(h_obj, g_obj)
             else:
                 theta = theta + learning_rate * g_obj

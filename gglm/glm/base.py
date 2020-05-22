@@ -6,12 +6,15 @@ import numpy as np
 from ..optimization import NewtonMethod
 from ..utils import get_dt, shift_array
 
+dic_nonlinearities = {'exp': lambda x: np.exp(x), 'log_exp': lambda x: np.log(1 + np.exp(x))}
+
 class GLM:
 
-    def __init__(self, u0=0, kappa=None, eta=None):
+    def __init__(self, u0=0, kappa=None, eta=None, non_linearity='exp'):
         self.u0 = u0
         self.kappa= kappa
         self.eta = eta
+        self.non_linearity = dic_nonlinearities[non_linearity]
 
     @property
     def r0(self):
@@ -59,8 +62,8 @@ class GLM:
         while j < len(t):
 
             u[j, ...] = u[j, ...] + eta_conv[j, ...]
-            r[j, ...] = np.exp(u[j, ...])
-            p_spk = 1. - np.exp(-r[j, ...] * dt)
+            r[j, ...] = self.non_linearity(u[j, ...])
+            p_spk = 1 - np.exp(-r[j, ...] * dt)
             
             rand = np.random.rand(*shape[1:])
             mask_spikes[j, ...] = p_spk > rand
@@ -102,7 +105,7 @@ class GLM:
         else:
             eta_conv = np.zeros(shape)
 
-        r = np.exp(u)
+        r = self.non_linearity(u)
 
         if full:
             return kappa_conv, eta_conv, u, r
@@ -113,6 +116,7 @@ class GLM:
 
         theta = self.get_params()
         # TODO. adapt for arbitrary number of dims in X
+        # TODO. other nonlinearities
         u = np.einsum('tka,a->tk', X, theta)
         r = np.exp(u)
 
