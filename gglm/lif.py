@@ -25,6 +25,8 @@ class LIF:
         
         dt = get_dt(t)
         
+        sigma = sigma if np.atleast_1d(sigma).shape[0] == len(t) else np.ones(len(t)) * sigma
+        
         if stim.ndim==1:
             v = np.zeros((len(t),1)) * np.nan
             mask_spikes = np.zeros((len(t),1), dtype=bool)
@@ -39,7 +41,7 @@ class LIF:
         j = 0
         while j < len(t)-1: 
             
-            dvdt = (-( v[j, ...] - vr ) + stim[j, ...] * R)/tau + sigma * np.sqrt(dt/tau) * np.random.randn(*v.shape[1:]) / dt
+            dvdt = (-( v[j, ...] - vr ) + stim[j, ...] * R)/tau + sigma[j, ...] * np.sqrt(dt/tau) * np.random.randn(*v.shape[1:]) / dt
             v[j+1, ...] = v[j, ...] + dvdt * dt
             v[j+1, mask_ref] = vrst
             t_refs[mask_ref] += dt

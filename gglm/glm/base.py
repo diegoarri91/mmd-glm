@@ -10,11 +10,12 @@ dic_nonlinearities = {'exp': lambda x: np.exp(x), 'log_exp': lambda x: np.log(1 
 
 class GLM:
 
-    def __init__(self, u0=0, kappa=None, eta=None, non_linearity='exp'):
+    def __init__(self, u0=0, kappa=None, eta=None, non_linearity='exp', noise='poisson'):
         self.u0 = u0
         self.kappa= kappa
         self.eta = eta
         self.non_linearity = dic_nonlinearities[non_linearity]
+        self.noise = noise
 
     @property
     def r0(self):
@@ -120,10 +121,19 @@ class GLM:
         u = np.einsum('tka,a->tk', X, theta)
         r = np.exp(u)
 
-        log_likelihood = np.sum(u[mask_spikes]) - dt * np.sum(r)
-        g_log_likelihood = np.sum(X[mask_spikes, :], axis=0) - dt * np.einsum('tka,tk->a', X, r)
-        h_log_likelihood = - dt * np.einsum('tka,tk,tkb->ab', X, r, X)
-
+        if self.noise == 'poisson':
+            log_likelihood = -(np.sum(u[mask_spikes]) - dt * np.sum(r))
+            g_log_likelihood = -(np.sum(X[mask_spikes, :], axis=0) - dt * np.einsum('tka,tk->a', X, r))
+            h_log_likelihood = -(-dt * np.einsum('tka,tk,tkb->ab', X, r, X))
+        elif self.noise == 'bernoulli':
+            r_s, r_ns = r[mask_spikes], r[~mask_spikes]
+            X_s, X_ns = X[mask_spikes, :], X[~mask_spikes, :]
+            exp_r_s = np.exp(r_s * dt)
+            log_likelihood = -(np.sum(np.log(1 - np.exp(-r_s * dt))) - dt * np.sum(r_ns))
+            g_log_likelihood = -(dt * np.matmul(X_s.T, r_s / (exp_r_s - 1)) - dt * np.matmul(X_ns.T, r_ns))
+            h_log_likelihood = -(dt * np.matmul(X_s.T * r_s * (exp_r_s * (1 - r_s * dt) - 1) / (exp_r_s - 1)**2, X_s) - \
+                                     dt * np.matmul(X_ns.T * r_ns, X_ns))
+                
         return log_likelihood, g_log_likelihood, h_log_likelihood, None
 
     def gh_objective(self,  dt, X, mask_spikes):

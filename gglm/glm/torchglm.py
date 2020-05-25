@@ -31,7 +31,8 @@ class TorchGLM(GLM, torch.nn.Module):
         
     def forward(self, dt, mask_spikes, X):
         
-        theta = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+#         theta = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+        theta = self.get_params()
         
         u = torch.einsum('tka,a->tk', X, theta)
         r = self.non_linearity_torch(u)
@@ -39,10 +40,22 @@ class TorchGLM(GLM, torch.nn.Module):
         if self.noise == 'poisson':
             nll = -(torch.sum(u[mask_spikes]) - dt * torch.sum(r))
         elif self.noise == 'bernoulli':
-            nll = -(torch.sum(torch.log(1 - torch.exp(-dt * r[mask_spikes])) + 1e-20) - \
+            nll = -(torch.sum(torch.log(1 - torch.exp(-dt * r[mask_spikes]) + 1e-24) ) - \
                      dt * torch.sum(r[~mask_spikes]))
             
         return nll
+    
+    def get_params(self):
+        n_kappa = 0 if self.kappa is None else self.kappa.nbasis
+        n_eta = 0 if self.eta is None else self.eta.nbasis
+        theta = torch.zeros(1 + n_kappa + n_eta)
+        theta[0] = self.b
+        if self.kappa is not None:
+            theta[1:1 + n_kappa] = self.kappa_coefs
+        if self.eta is not None:
+            theta[1 + n_kappa:] = self.eta_coefs
+        theta = theta.double()
+        return theta
 
     def train(self, t, mask_spikes, stim=None, optim=None, num_epochs=20, verbose=False, metrics=None):
         
@@ -61,6 +74,8 @@ class TorchGLM(GLM, torch.nn.Module):
             
             optim.zero_grad()
             _nll = self(dt, mask_spikes, X)
+#             print(_nll)
+#             print(kwnkwn)
             
             if metrics is not None:
                 _metrics = metrics(self, t, mask_spikes, X)
@@ -72,7 +87,8 @@ class TorchGLM(GLM, torch.nn.Module):
                         
             _nll.backward()
             optim.step()
-            theta = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+#             theta = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+            theta = self.get_params()
             self.set_params(theta.data.detach().numpy())
             
             nll.append(_nll.item())

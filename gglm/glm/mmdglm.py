@@ -31,10 +31,12 @@ class MMDGLM(GLM, torch.nn.Module):
             eta_coefs = torch.from_numpy(eta.coefs)
             self.register_parameter("eta_coefs", torch.nn.Parameter(eta_coefs))
     
-    def forward(self, t, mask_spikes, phi_d=None, gramian_d_d=None, phi=None, kernel=None, stim=None, n_batch_fr=None, lam_mmd=1):
+    def forward(self, t, mask_spikes, phi_d=None, gramian_d_d=None, phi=None, kernel=None, stim=None, n_batch_fr=None, 
+                lam_mmd=1, biased=False, biased_mmd=False):
         
         dt = get_dt(t)
-        theta_g = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+#         theta_g = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+        theta_g = self.get_params()
         
         # TODO. I am calculating u_fr and r_fr twice because I can't backpropagate through my current sample function. change this
         if stim is not None:
@@ -55,7 +57,7 @@ class MMDGLM(GLM, torch.nn.Module):
         if kernel is not None:
             gramian_fr_fr = kernel(t, mask_spikes_fr, mask_spikes_fr)
             gramian_d_fr = kernel(t, mask_spikes, mask_spikes_fr)
-#         
+         
         n_batch_d, n_batch_fr = gramian_d_fr.shape[0], gramian_d_fr.shape[1]
 #         log_likelihood_fr = torch.sum(u_fr * mask_spikes_fr.double() - dt * r_fr, 0)
         log_likelihood_fr = torch.sum(torch.log(1 - torch.exp(-dt * r_fr) + 1e-20) * mask_spikes_fr.double() - \
@@ -66,12 +68,23 @@ class MMDGLM(GLM, torch.nn.Module):
         idx_fr = np.triu_indices(gramian_fr_fr.shape[0], k=1)
         idx_fr = (torch.from_numpy(idx_fr[0]), torch.from_numpy(idx_fr[1]))
         
-        mmd_grad = torch.mean(((log_likelihood_fr[:, None] + log_likelihood_fr[None, :]) * gramian_fr_fr)[idx_fr]) \
-                   -2 * torch.mean(log_likelihood_fr[None, :] * gramian_d_fr)
+        if not(biased):
+            mmd_grad = torch.mean(((log_likelihood_fr[:, None] + log_likelihood_fr[None, :]) * gramian_fr_fr)[idx_fr]) \
+                       -2 * torch.mean(log_likelihood_fr[None, :] * gramian_d_fr)            
+        else:
+            mmd_grad = 2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * \
+                                     torch.mean(log_likelihood_fr[None, :] * phi_fr, 1))
+            
 #         mmd_grad2 = 2 * torch.mean((log_likelihood_fr[None, :] * gramian_fr_fr)[idx_fr]) \
 #                   -2 * torch.mean( log_likelihood_fr[None, :] * gramian_d_fr)
         
-        mmd = torch.mean(gramian_d_d[idx_d]) + torch.mean(gramian_fr_fr[idx_fr]) - 2 * torch.mean(gramian_d_fr)
+        if not(biased_mmd):
+            mmd = torch.mean(gramian_d_d[idx_d]) + torch.mean(gramian_fr_fr[idx_fr]) - 2 * torch.mean(gramian_d_fr)
+        else:
+            if kernel is None:
+                mmd = torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)
+            else:
+                mmd = torch.mean(gramian_d_d) + torch.mean(gramian_fr_fr) - 2 * torch.mean(gramian_d_fr)
     
 #         mmd = self.mmd(mask_spikes, mask_spikes_fr, kernel=kernel)
 #         mmd = self.mmd_spikes(mask_spikes, mask_spikes_fr, kernel=kernel)
@@ -80,6 +93,18 @@ class MMDGLM(GLM, torch.nn.Module):
         loss = lam_mmd * mmd_grad 
         
         return loss, mmd
+    
+    def get_params(self):
+        n_kappa = 0 if self.kappa is None else self.kappa.nbasis
+        n_eta = 0 if self.eta is None else self.eta.nbasis
+        theta = torch.zeros(1 + n_kappa + n_eta)
+        theta[0] = self.b
+        if self.kappa is not None:
+            theta[1:1 + n_kappa] = self.kappa_coefs
+        if self.eta is not None:
+            theta[1 + n_kappa:] = self.eta_coefs
+        theta = theta.double()
+        return theta
 
     def mmd_spikes(self, mask_spikes, mask_spikes_fr, kernel=None):
 
@@ -104,7 +129,8 @@ class MMDGLM(GLM, torch.nn.Module):
         return d
 
     def _log_likelihood(self, dt, mask_spikes, X_dc):
-        theta_g = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+#         theta_g = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
+        theta_g = self.get_params()
         u_dc = torch.einsum('tka,a->tk', X_dc, theta_g)
         r_dc = self.non_linearity_torch(u_dc)
 #         neg_log_likelihood = -(torch.sum(u_dc[mask_spikes]) - dt * torch.sum(r_dc))
@@ -112,8 +138,8 @@ class MMDGLM(GLM, torch.nn.Module):
                                dt * torch.sum(r_dc * (1 - mask_spikes.double())))
         return neg_log_likelihood
     
-    def train(self, t, mask_spikes, phi=None, kernel=None, stim=None, log_likelihood=False, lam_mmd=1e0, optim=None, 
-              num_epochs=20, n_batch_fr=100, verbose=False, mmd_kwargs=None, metrics=None):
+    def train(self, t, mask_spikes, phi=None, kernel=None, stim=None, log_likelihood=False, lam_mmd=1e0, biased=False, 
+              biased_mmd=False, optim=None, num_epochs=20, n_batch_fr=100, n_batch=1, verbose=False, mmd_kwargs=None, metrics=None):
 
         n_batch_dc = mask_spikes.shape[1]
     
@@ -141,15 +167,25 @@ class MMDGLM(GLM, torch.nn.Module):
             
             optim.zero_grad()
             
-            _loss, _mmd = self(t, mask_spikes, phi_d=phi_d, gramian_d_d=gramian_d_d, phi=phi, kernel=kernel, 
-                               stim=stim, n_batch_fr=n_batch_fr, lam_mmd=lam_mmd)
+            batch_loss = 0
+            batch_mmd = 0
+            for ii in range(n_batch):
+            
+                _loss, _mmd = self(t, mask_spikes, phi_d=phi_d, gramian_d_d=gramian_d_d, phi=phi, kernel=kernel, 
+                                   stim=stim, n_batch_fr=n_batch_fr, lam_mmd=lam_mmd, biased=biased, biased_mmd=biased_mmd)
+                
+                batch_loss = batch_loss + _loss
+                batch_mmd = batch_mmd + _mmd
+            
+            batch_loss = batch_loss / n_batch
+            batch_mmd = batch_mmd / n_batch
             
             if log_likelihood:
                 _nll = self._log_likelihood(dt, mask_spikes, X_dc)
-                _loss = _loss + _nll
+                batch_loss = batch_loss + _nll
                 nll.append(_nll.item())
                         
-            _loss.backward()
+            batch_loss.backward()
             optim.step()
             
             if metrics is not None:
@@ -162,11 +198,12 @@ class MMDGLM(GLM, torch.nn.Module):
                     for key, val in _metrics.items():
                         metrics_list[key].append(val)
             
-            theta_g = torch.cat([self.b, self.kappa_coefs, self.eta_coefs])
+#             theta_g = torch.cat([self.b, self.kappa_coefs, self.eta_coefs])
+            theta_g = self.get_params()
             self.set_params(theta_g.data.detach().numpy())
             
-            loss.append(_loss.item())
-            mmd.append(_mmd)
+            loss.append(batch_loss.item())
+            mmd.append(batch_mmd)
             
         if metrics is None:
             metrics_list = None
