@@ -57,10 +57,12 @@ class TorchGLM(GLM, torch.nn.Module):
         theta = theta.double()
         return theta
 
-    def train(self, t, mask_spikes, stim=None, optim=None, num_epochs=20, verbose=False, metrics=None):
+    def train(self, t, mask_spikes, stim=None, optim=None, num_epochs=20, verbose=False, metrics=None, 
+              metrics_kwargs=None, n_metrics=10):
         
         dt = torch.tensor([get_dt(t)])
         nll, metrics_list = [], []
+        metrics_kwargs = metrics_kwargs if metrics_kwargs is not None else {}
         
         X = torch.from_numpy(self.objective_kwargs(t, mask_spikes, stim=stim)['X']).double()
         
@@ -74,11 +76,9 @@ class TorchGLM(GLM, torch.nn.Module):
             
             optim.zero_grad()
             _nll = self(dt, mask_spikes, X)
-#             print(_nll)
-#             print(kwnkwn)
             
-            if metrics is not None:
-                _metrics = metrics(self, t, mask_spikes, X)
+            if metrics is not None and (epoch % n_metrics) == 0:
+                _metrics = metrics(self, t, mask_spikes, X, **metrics_kwargs)
                 if epoch == 0:
                     metrics_list = {key:[val] for key, val in _metrics.items()}
                 else:

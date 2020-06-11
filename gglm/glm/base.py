@@ -19,7 +19,7 @@ class GLM:
 
     @property
     def r0(self):
-        return np.exp(-self.u0)
+        return np.exp(self.u0)
 
     def copy(self):
         return self.__class__(u0=self.u0, eta=self.eta.copy())
@@ -101,7 +101,8 @@ class GLM:
             u = np.ones(shape) * self.u0
             
         if self.eta is not None and len(t_spikes[0]) > 0:
-            eta_conv = self.eta.convolve_discrete(t, t_spikes, shape=shape[1:]) #TODO. check if 1: or not
+#             eta_conv = self.eta.convolve_discrete(t, t_spikes, shape=shape[1:]) #TODO. check if 1: or not
+            eta_conv = self.eta.convolve_discrete(t, t_spikes) #TODO. check if 1: or not
             u = u + eta_conv
         else:
             eta_conv = np.zeros(shape)
