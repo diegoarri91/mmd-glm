@@ -1,15 +1,11 @@
 import numpy as np
 import torch
-from torch.autograd import Variable
-from torch.nn import Parameter
-from torch.optim import Adam, LBFGS
-
-from sptr.sptr import SpikeTrain
 
 from .base import GLM
 from ..utils import get_dt, shift_array
 
 dic_nonlinearities = {'exp': lambda x: torch.exp(x), 'log_exp': lambda x: torch.log(1 + torch.exp(x))}
+
 
 class CIMMDGLM(GLM, torch.nn.Module):
 
