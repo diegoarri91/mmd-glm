@@ -41,7 +41,7 @@ class TorchGLM(GLM, torch.nn.Module):
             nll = -(torch.sum(u[mask_spikes]) - dt * torch.sum(r))
         elif self.noise == 'bernoulli':
             nll = -(torch.sum(torch.log(1 - torch.exp(-dt * r[mask_spikes]) + 1e-24) ) - \
-                     dt * torch.sum(r[~mask_spikes]))
+                     dt * torch.sum(r[~mask_spikes]))    
             
         return nll
     
@@ -58,39 +58,46 @@ class TorchGLM(GLM, torch.nn.Module):
         return theta
 
     def train(self, t, mask_spikes, stim=None, optim=None, num_epochs=20, verbose=False, metrics=None, 
-              metrics_kwargs=None, n_metrics=10):
+              metrics_kwargs=None, n_metrics=10, l2=False, alpha_l2=1e0):
         
         dt = torch.tensor([get_dt(t)])
-        nll, metrics_list = [], []
+        loss, metrics_list = [], []
         metrics_kwargs = metrics_kwargs if metrics_kwargs is not None else {}
         
         X = torch.from_numpy(self.objective_kwargs(t, mask_spikes, stim=stim)['X']).double()
         
-        _nll = torch.tensor(float('nan'))
+        _loss = torch.tensor(float('nan'))
         
         for epoch in range(num_epochs):
             
             if verbose:
                 print('\r', 'epoch', epoch, 'of', num_epochs, 
-                      'nll', round(_nll.item(), 4), end='')
+                      'loss', round(_loss.item(), 4), end='')
             
             optim.zero_grad()
             _nll = self(dt, mask_spikes, X)
             
+            if l2:
+                _loss = _nll + alpha_l2 * torch.sum(self.eta_coefs**2)
+            else:
+                _loss = _nll
+            
             if metrics is not None and (epoch % n_metrics) == 0:
                 _metrics = metrics(self, t, mask_spikes, X, **metrics_kwargs)
+                if l2:
+                    _metrics['nll'] = _nll.detach()
                 if epoch == 0:
                     metrics_list = {key:[val] for key, val in _metrics.items()}
                 else:
                     for key, val in _metrics.items():
                         metrics_list[key].append(val)
                         
-            _nll.backward()
+            _loss.backward()
             optim.step()
 #             theta = torch.cat((self.b, self.kappa_coefs, self.eta_coefs))
             theta = self.get_params()
             self.set_params(theta.data.detach().numpy())
             
-            nll.append(_nll.item())
+            loss.append(_loss.item())
             
-        return nll, metrics_list
+        return loss, metrics_list

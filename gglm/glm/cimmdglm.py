@@ -97,14 +97,14 @@ class CIMMDGLM(GLM, torch.nn.Module):
             
             r_fr, mask_spikes_fr, X_fr = self(t, stim=stim, n_batch_fr=n_batch_fr)
             
-            if score_term:
-                score = torch.sum(torch.log(1 - torch.exp(-dt * r_fr) + 1e-24) * mask_spikes_fr.double(), 0) - \
-                          dt * torch.sum(r_fr * (1 - mask_spikes_fr.double()), 0)
+#             if score_term:
+#                 score = torch.sum(torch.log(1 - torch.exp(-dt * r_fr) + 1e-24) * mask_spikes_fr.double(), 0) - \
+#                           dt * torch.sum(r_fr * (1 - mask_spikes_fr.double()), 0)
 
             if phi is not None:
                 phi_d = phi(t, r_dc, model=self)
                 phi_fr = phi(t, r_fr, model=self)
-#                 print(phi_d.shape, phi_fr.shape, n_d, n_batch_fr)
+                
                 if not biased:
                     sum_phi_d = torch.sum(phi_d, 1)
                     sum_phi_fr = torch.sum(phi_fr, 1)
@@ -113,25 +113,24 @@ class CIMMDGLM(GLM, torch.nn.Module):
                     norm2_fr = (torch.sum(sum_phi_fr**2) - torch.sum(phi_fr**2)) / (n_batch_fr * (n_batch_fr - 1))
                     mean_dot = torch.sum(sum_phi_d * sum_phi_fr) / (n_d * n_batch_fr)
                     
-                    if score_term:
-                        sum_score_phi_fr = torch.sum(score[None, :] * phi_fr.detach(), 1)
-                        sum_score_ker_fr = torch.sum(sum_phi_fr.detach() * sum_score_phi_fr) - \
-                                           torch.sum(score[None, :] * phi_fr.detach()**2)
-                        norm2_fr = norm2_fr + 2 * sum_score_ker_fr / (n_batch_fr * (n_batch_fr - 1))
-                        mean_dot = mean_dot + torch.sum(sum_phi_d.detach() * sum_score_phi_fr)/ (n_d * n_batch_fr)
+#                     if score_term:
+#                         sum_score_phi_fr = torch.sum(score[None, :] * phi_fr.detach(), 1)
+#                         sum_score_ker_fr = torch.sum(sum_phi_fr.detach() * sum_score_phi_fr) - \
+#                                            torch.sum(score[None, :] * phi_fr.detach()**2)
+#                         norm2_fr = norm2_fr + 2 * sum_score_ker_fr / (n_batch_fr * (n_batch_fr - 1))
+#                         mean_dot = mean_dot + torch.sum(sum_phi_d.detach() * sum_score_phi_fr)/ (n_d * n_batch_fr)
+#                         mmd_grad = torch.mean(gramian_d_d[idx_d]) + \
+#                                 torch.mean(((score[:, None] + score[None, :]) * gramian_fr_fr.detach() + gramian_fr_fr)[idx_fr]) \
+#                                 -2 * torch.mean(score[None, :] * gramian_d_fr.detach()  + gramian_d_fr)
                         
                     mmd_grad = norm2_d + norm2_fr - 2 * mean_dot
                 else:
                     mmd_grad = torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)
-#                 print(mmd_grad)
             else:
                 gramian_d_d = kernel(t, r_dc, r_dc)
                 gramian_fr_fr = kernel(t, r_fr, r_fr)
                 gramian_d_fr = kernel(t, r_dc, r_fr)
                 if not biased:
-#                     mmd_grad = torch.mean(gramian_d_d[idx_d]) + \
-#                                torch.mean(((score[:, None] + score[None, :]) * gramian_fr_fr.detach() + gramian_fr_fr)[idx_fr]) \
-#                                 -2 * torch.mean(score[None, :] * gramian_d_fr.detach()  + gramian_d_fr)
                     mmd_grad = torch.mean(gramian_d_d[idx_d]) + torch.mean(gramian_fr_fr[idx_fr]) \
                                 -2 * torch.mean(gramian_d_fr)
                 else:
@@ -142,11 +141,9 @@ class CIMMDGLM(GLM, torch.nn.Module):
             
             if log_likelihood:
                 _nll = self._log_likelihood(dt, mask_spikes, X_dc)
-#                 print(_loss, _nll)
                 nll.append(_nll.item())
                 _loss = _loss + _nll
-#                 print(_loss)
-                        
+
             if metrics is not None and (epoch % n_metrics) == 0:
                 _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
                 if phi is not None:
