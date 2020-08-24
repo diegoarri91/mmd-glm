@@ -127,9 +127,9 @@ class CIMMDGLM(GLM, torch.nn.Module):
                 else:
                     mmd_grad = torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)
             else:
-                gramian_d_d = kernel(t, r_dc, r_dc)
-                gramian_fr_fr = kernel(t, r_fr, r_fr)
-                gramian_d_fr = kernel(t, r_dc, r_fr)
+                gramian_d_d = kernel(t, r_dc, r_dc, model=self)
+                gramian_fr_fr = kernel(t, r_fr, r_fr, model=self)
+                gramian_d_fr = kernel(t, r_dc, r_fr, model=self)
                 if not biased:
                     mmd_grad = torch.mean(gramian_d_d[idx_d]) + torch.mean(gramian_fr_fr[idx_fr]) \
                                 -2 * torch.mean(gramian_d_fr)
