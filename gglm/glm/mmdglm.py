@@ -113,8 +113,9 @@ class MMDGLM(GLM, torch.nn.Module):
                     mmd_grad = norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_phi_fr)
 #                     print(mmd_grad)
                 else:
-                    pass
-#                     mmd_grad = torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)
+#                     print(score.shape, phi_fr.shape)
+#                     print(wknwkw)
+                    mmd_grad = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(score[None, :] * phi_fr, 1))
             else:
                 gramian_fr_fr = kernel(t, mask_spikes_fr, mask_spikes_fr)
                 gramian_d_fr = kernel(t, mask_spikes, mask_spikes_fr)
