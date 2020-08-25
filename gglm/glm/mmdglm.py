@@ -110,7 +110,8 @@ class MMDGLM(GLM, torch.nn.Module):
                     sum_phi_fr = torch.sum(phi_fr, 1)
                     norm2_fr = (torch.sum(sum_score_phi_fr * sum_phi_fr) - torch.sum(score_phi * phi_fr)) * 2 / (n_batch_fr * (n_batch_fr - 1))
                     sum_phi_d = torch.sum(phi_d, 1)
-                    mmd_grad = norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_phi_fr)
+#                     mmd_grad = norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_phi_fr)
+                    mmd_grad = norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_score_phi_fr)
 #                     print(mmd_grad)
                 else:
 #                     print(score.shape, phi_fr.shape)
@@ -142,7 +143,15 @@ class MMDGLM(GLM, torch.nn.Module):
             if metrics is not None and epoch % n_metrics == 0:
                 _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
                 if phi is not None:
-                    _metrics['mmd'] = (torch.sum((torch.mean(phi_d.detach(), 1) - torch.mean(phi_fr.detach(), 1))**2)).item()
+                    if not biased:
+                        _metrics['mmd'] = (torch.sum((torch.mean(phi_d.detach(), 1) - torch.mean(phi_fr.detach(), 1))**2)).item()
+                    else:
+                        sum_phi_d = torch.sum(phi_d, 1)
+                        sum_phi_fr = torch.sum(phi_fr, 1)
+                        norm2_d = (torch.sum(sum_phi_d**2) - torch.sum(phi_d**2)) / (n_d * (n_d - 1))
+                        norm2_fr = (torch.sum(sum_phi_fr**2) - torch.sum(phi_fr**2)) / (n_batch_fr * (n_batch_fr - 1))
+                        mean_dot = torch.sum(sum_phi_d * sum_phi_fr) / (n_d * n_batch_fr)
+                        _metrics['mmd'] = norm2_d + norm2_fr - 2 * mean_dot
                 else:
                     if not biased:
                         _metrics['mmd'] = torch.mean(gramian_d_d.detach()[idx_d]) + torch.mean(gramian_fr_fr.detach()[idx_fr]) \

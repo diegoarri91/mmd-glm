@@ -144,6 +144,10 @@ class CIMMDGLM(GLM, torch.nn.Module):
                 nll.append(_nll.item())
                 _loss = _loss + _nll
 
+            _loss.backward()
+            if clip is not None:
+                torch.nn.utils.clip_grad_value_(self.parameters(), clip)
+                
             if metrics is not None and (epoch % n_metrics) == 0:
                 _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
                 if phi is not None:
@@ -151,16 +155,16 @@ class CIMMDGLM(GLM, torch.nn.Module):
                 else:
                     _metrics['mmd'] = torch.mean(gramian_d_d.detach()[idx_d]) + torch.mean(gramian_fr_fr.detach()[idx_fr]) \
                                       - 2 * torch.mean(gramian_d_fr.detach())
+                    
+                if True:
+                    _metrics['b_grad_norm'] = self.b.grad.detach().norm(2).item()
+                    _metrics['eta_coefs_grad_norm'] = self.eta_coefs.grad.detach().norm(2).item()
+                
                 if epoch == 0:
                     metrics_list = {key:[val] for key, val in _metrics.items()}
                 else:
                     for key, val in _metrics.items():
                         metrics_list[key].append(val)
-        
-            _loss.backward()
-            
-            if clip is not None:
-                torch.nn.utils.clip_grad_value_(self.parameters(), clip)
             
             optim.step()
 #             if scheduler is not None:
