@@ -6,6 +6,7 @@ from torch.optim import Adam, LBFGS
 from sptr.sptr import SpikeTrain
 
 from .base import GLM
+from ..metrics import _mmd_from_features, _mmd_from_gramians
 from ..utils import get_dt, shift_array
 
 dic_nonlinearities = {'exp': lambda x: torch.exp(x), 'log_exp': lambda x: torch.log(1 + torch.exp(x))}
@@ -64,7 +65,6 @@ class MMDGLM(GLM, torch.nn.Module):
         theta_g = self.get_params()
         u_dc = torch.einsum('tka,a->tk', X_dc, theta_g)
         r_dc = self.non_linearity_torch(u_dc)
-#         neg_log_likelihood = -(torch.sum(u_dc[mask_spikes]) - dt * torch.sum(r_dc))
         neg_log_likelihood = -(torch.sum(torch.log(1 - torch.exp(-dt * r_dc)) * mask_spikes.double()) - \
                                dt * torch.sum(r_dc * (1 - mask_spikes.double())))
         return neg_log_likelihood
@@ -81,6 +81,7 @@ class MMDGLM(GLM, torch.nn.Module):
         
         if phi is not None:
             phi_d = phi(t, mask_spikes)
+            sum_phi_d = torch.sum(phi_d, 1)
         else:
             idx_fr = np.triu_indices(n_batch_fr, k=1)
             idx_fr = (torch.from_numpy(idx_fr[0]), torch.from_numpy(idx_fr[1]))
@@ -99,36 +100,33 @@ class MMDGLM(GLM, torch.nn.Module):
             
             r_fr, mask_spikes_fr, X_fr = self(t, stim=stim, n_batch_fr=n_batch_fr)
             
-            score = torch.sum(torch.log(1 - torch.exp(-dt * r_fr) + 1e-24) * mask_spikes_fr.double(), 0) - \
+            log_proba = torch.sum(torch.log(1 - torch.exp(-dt * r_fr) + 1e-24) * mask_spikes_fr.double(), 0) - \
                       dt * torch.sum(r_fr * (1 - mask_spikes_fr.double()), 0)
             
             if phi is not None:
                 phi_fr = phi(t, mask_spikes_fr)
                 if not biased:
-                    score_phi = score[None, :] * phi_fr
-                    sum_score_phi_fr = torch.sum(score_phi, 1)
+                    log_proba_phi = log_proba[None, :] * phi_fr
+                    sum_log_proba_phi_fr = torch.sum(log_proba_phi, 1)
                     sum_phi_fr = torch.sum(phi_fr, 1)
-                    norm2_fr = (torch.sum(sum_score_phi_fr * sum_phi_fr) - torch.sum(score_phi * phi_fr)) * 2 / (n_batch_fr * (n_batch_fr - 1))
-                    sum_phi_d = torch.sum(phi_d, 1)
-#                     mmd_grad = norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_phi_fr)
-                    mmd_grad = norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_score_phi_fr)
-#                     print(mmd_grad)
+                    norm2_fr = (torch.sum(sum_log_proba_phi_fr * sum_phi_fr) - torch.sum(log_proba_phi * phi_fr)) / (n_batch_fr * (n_batch_fr - 1))
+                    mmd_surr = 2 * norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_log_proba_phi_fr)
                 else:
-#                     print(score.shape, phi_fr.shape)
-#                     print(wknwkw)
-                    mmd_grad = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(score[None, :] * phi_fr, 1))
+                    mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1))
             else:
                 gramian_fr_fr = kernel(t, mask_spikes_fr, mask_spikes_fr)
                 gramian_d_fr = kernel(t, mask_spikes, mask_spikes_fr)
                 if not biased:
-                    mmd_grad = torch.mean(((score[:, None] + score[None, :]) * gramian_fr_fr)[idx_fr]) \
-                                              -2 * torch.mean(score[None, :] * gramian_d_fr)
+#                     mmd_surr = torch.mean(((log_proba[:, None] + log_proba[None, :]) * gramian_fr_fr)[idx_fr]) \
+#                                               -2 * torch.mean(log_proba[None, :] * gramian_d_fr)
+                    gramian_fr_fr.fill_diagonal_(0)
+                    mmd_surr = 2 * torch.sum(log_proba[:, None] * gramian_fr_fr) / (n_batch_fr * (n_batch_fr - 1)) \
+                             - 2 * torch.mean(log_proba[None, :] * gramian_d_fr)
                 else:
-                    mmd_grad = torch.mean(((score[:, None] + score[None, :]) * gramian_fr_fr)) \
-                                                  -2 * torch.mean(score[None, :] * gramian_d_fr)
+                    mmd_surr = torch.mean(((log_proba[:, None] + log_proba[None, :]) * gramian_fr_fr)) \
+                                                  -2 * torch.mean(log_proba[None, :] * gramian_d_fr)
             
-            _loss = lam_mmd * mmd_grad
-#             _loss = torch.clamp(_loss, -1e10, 1e10)
+            _loss = lam_mmd * mmd_surr
             
             if log_likelihood:
                 _nll = self._neg_log_likelihood(dt, mask_spikes, X_dc)
@@ -140,27 +138,32 @@ class MMDGLM(GLM, torch.nn.Module):
             if clip is not None:
                 torch.nn.utils.clip_grad_value_(self.parameters(), clip)
             
-            if metrics is not None and epoch % n_metrics == 0:
-                _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
-                if phi is not None:
-                    if not biased:
-                        _metrics['mmd'] = (torch.sum((torch.mean(phi_d.detach(), 1) - torch.mean(phi_fr.detach(), 1))**2)).item()
-                    else:
-                        sum_phi_d = torch.sum(phi_d, 1)
-                        sum_phi_fr = torch.sum(phi_fr, 1)
-                        norm2_d = (torch.sum(sum_phi_d**2) - torch.sum(phi_d**2)) / (n_d * (n_d - 1))
-                        norm2_fr = (torch.sum(sum_phi_fr**2) - torch.sum(phi_fr**2)) / (n_batch_fr * (n_batch_fr - 1))
-                        mean_dot = torch.sum(sum_phi_d * sum_phi_fr) / (n_d * n_batch_fr)
-                        _metrics['mmd'] = norm2_d + norm2_fr - 2 * mean_dot
+            if epoch % n_metrics == 0:
+                if metrics is not None:
+                    _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
+                
+                if kernel is not None:
+                    _metrics['mmd'] = _mmd_from_gramians(t, gramian_d_d, gramian_fr_fr, gramian_d_fr, biased=biased)
                 else:
-                    if not biased:
-                        _metrics['mmd'] = torch.mean(gramian_d_d.detach()[idx_d]) + torch.mean(gramian_fr_fr.detach()[idx_fr]) \
-                                          - 2 * torch.mean(gramian_d_fr.detach())
-                    else:
-                        _metrics['mmd'] = torch.mean(gramian_d_d.detach()) + torch.mean(gramian_fr_fr.detach()) \
-                                          - 2 * torch.mean(gramian_d_fr.detach())
-#                 if log_likelihood:
-#                     _metrics['nll'] = _nll.item()
+                    _metrics['mmd'] = _mmd_from_features(t, phi_d, phi_fr, biased=biased)
+                    
+#                 if phi is not None:
+#                     if not biased:
+#                         _metrics['mmd'] = (torch.sum((torch.mean(phi_d.detach(), 1) - torch.mean(phi_fr.detach(), 1))**2)).item()
+#                     else:
+#                         sum_phi_d = torch.sum(phi_d, 1)
+#                         sum_phi_fr = torch.sum(phi_fr, 1)
+#                         norm2_d = (torch.sum(sum_phi_d**2) - torch.sum(phi_d**2)) / (n_d * (n_d - 1))
+#                         norm2_fr = (torch.sum(sum_phi_fr**2) - torch.sum(phi_fr**2)) / (n_batch_fr * (n_batch_fr - 1))
+#                         mean_dot = torch.sum(sum_phi_d * sum_phi_fr) / (n_d * n_batch_fr)
+#                         _metrics['mmd'] = norm2_d + norm2_fr - 2 * mean_dot
+#                 else:
+#                     if not biased:
+#                         _metrics['mmd'] = torch.mean(gramian_d_d.detach()[idx_d]) + torch.mean(gramian_fr_fr.detach()[idx_fr]) \
+#                                           - 2 * torch.mean(gramian_d_fr.detach())
+#                     else:
+#                         _metrics['mmd'] = torch.mean(gramian_d_d.detach()) + torch.mean(gramian_fr_fr.detach()) \
+#                                           - 2 * torch.mean(gramian_d_fr.detach())
 
                 if epoch == 0:
                     metrics_list = {key:[val] for key, val in _metrics.items()}
@@ -176,10 +179,9 @@ class MMDGLM(GLM, torch.nn.Module):
             self.set_params(theta_g.data.detach().numpy())
             
             loss.append(_loss.item())
-#             mmd.append(_mmd)
             
-        if metrics is None:
-            metrics_list = None
+#         if metrics is None:
+#             metrics_list = None
         
         return loss, nll, metrics_list
 

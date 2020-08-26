@@ -22,27 +22,70 @@ def poisson_log_likelihood_poisson_process(dt, mask_spikes, u, r):
     log_like_normed = (log_likelihood - log_likelihood_poisson) / np.log(2) / np.sum(n_spikes)
     return log_like_normed
 
-def MMD(t, s1, s2, phi=None, kernel=None, biased=False):
-    
-    if kernel is not None:
-        gramian_11 = kernel(t, s1, s1)
-        gramian_22 = kernel(t, s2, s2)
-        gramian_12 = kernel(t, s1, s2)
-    
-    if not(biased):
-        idx_1 = np.triu_indices(gramian_11.shape[0], k=1)
-        idx_1 = (torch.tensor(idx_1[0]), torch.tensor(idx_1[1]))
-        idx_2 = np.triu_indices(gramian_22.shape[0], k=1)
-        idx_2 = (torch.tensor(idx_2[0]), torch.tensor(idx_2[1]))
-        mmd = torch.mean(gramian_11[idx_1]) + torch.mean(gramian_22[idx_2]) - 2 * torch.mean(gramian_12)
+
+def _mmd_from_gramians(t, gramian_11, gramian_22, gramian_12, biased=False):
+    n1, n2 = gramian_11.shape[0], gramian_22.shape[0]
+    if not biased:
+        gramian_11.fill_diagonal_(0)
+        gramian_22.fill_diagonal_(0)
+        mmd = torch.sum(gramian_11) / (n1 * (n1 - 1)) + torch.sum(gramian_22) / (n2 * (n2 - 1)) \
+                                              - 2 * torch.mean(gramian_12)
     else:
-        if kernel is None:
-            pass
-#             mmd = torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)
-        else:
-            mmd = torch.mean(gramian_11) + torch.mean(gramian_22) - 2 * torch.mean(gramian_12)
-            
+        mmd = torch.mean(gramian_11) + torch.mean(gramian_22) - 2 * torch.mean(gramian_12)
     return mmd
+
+
+def _mmd_from_features(t, phi_1, phi_2, biased=False):
+    n1, n2 = phi_1.shape[1], phi_2.shape[1]
+    if biased:
+        phi_1_mean = torch.mean(phi_1, 1)
+        phi_2_mean = torch.mean(phi_2, 1)
+        mmd = torch.sum((phi_1_mean - phi_2_mean)**2)
+    else:
+        sum_phi_1 = torch.sum(phi_1, 1)
+        sum_phi_2 = torch.sum(phi_2, 1)
+        norm2_1 = (torch.sum(sum_phi_1**2) - torch.sum(phi_1**2)) / (n1 * (n1 - 1))
+        norm2_2 = (torch.sum(sum_phi_2**2) - torch.sum(phi_2**2)) / (n2 * (n2 - 1))
+        mean_dot = torch.sum(sum_phi_1 * sum_phi_2) / (n1 * n2)     
+        mmd = norm2_1 + norm2_2 - 2 * mean_dot
+    return mmd
+
+
+def MMD(t, s1, s2, phi=None, kernel=None, biased=False, **kwargs):
+    
+    with torch.no_grad():
+
+        n1, n2 = s1.shape[1], s2.shape[1]
+        
+        if kernel is not None:
+            gramian_11 = kernel(t, s1, s1, **kwargs)
+            gramian_22 = kernel(t, s2, s2, **kwargs)
+            gramian_12 = kernel(t, s1, s2, **kwargs)
+            if not biased:
+                gramian_11.fill_diagonal_(0)
+                gramian_22.fill_diagonal_(0)
+                mmd = torch.sum(gramian_11) / (n1 * (n1 - 1)) + torch.sum(gramian_22) / (n2 * (n2 - 1)) \
+                                              - 2 * torch.mean(gramian_12)
+            else:
+                mmd = torch.mean(gramian_11) + torch.mean(gramian_22) - 2 * torch.mean(gramian_12)
+
+        elif phi is not None:
+            phi_1 = phi(t, s1, **kwargs)
+            phi_2 = phi(t, s2, **kwargs)
+            if biased:
+                phi_1_mean = torch.mean(phi_1, 1)
+                phi_2_mean = torch.mean(phi_2, 1)
+                mmd = torch.sum((phi_1_mean - phi_2_mean)**2)
+            else:
+                sum_phi_1 = torch.sum(phi_1, 1)
+                sum_phi_2 = torch.sum(phi_2, 1)
+                norm2_1 = (torch.sum(sum_phi_1**2) - torch.sum(phi_1**2)) / (n1 * (n1 - 1))
+                norm2_2 = (torch.sum(sum_phi_2**2) - torch.sum(phi_2**2)) / (n2 * (n2 - 1))
+                mean_dot = torch.sum(sum_phi_1 * sum_phi_2) / (n1 * n2)     
+                mmd = norm2_1 + norm2_2 - 2 * mean_dot
+        
+    return mmd
+
 
 def time_rescale_transform(dt, mask_spikes, r):
     
