@@ -67,7 +67,7 @@ class CIMMDGLM(GLM, torch.nn.Module):
         return neg_log_likelihood
     
     def train(self, t, mask_spikes, phi=None, kernel=None, stim=None, log_likelihood=False, lam_mmd=1e0, biased=False, 
-              score_term=False, optim=None, clip=None, num_epochs=20, n_batch_fr=100, verbose=False, metrics=None, n_metrics=25):
+              score_term=False, optim=None, clip=None, num_epochs=20, n_batch_fr=100, kernel_kwargs=None, verbose=False, metrics=None, n_metrics=25):
 
         n_d = mask_spikes.shape[1]
     
@@ -75,6 +75,8 @@ class CIMMDGLM(GLM, torch.nn.Module):
         loss, nll = [], []
         
         X_dc = torch.from_numpy(self.objective_kwargs(t, mask_spikes, stim=stim)['X']).double()
+        
+        kernel_kwargs = kernel_kwargs if kernel_kwargs is not None else {}
         
         if phi is None:
             idx_fr = np.triu_indices(n_batch_fr, k=1)
@@ -102,8 +104,8 @@ class CIMMDGLM(GLM, torch.nn.Module):
 #                           dt * torch.sum(r_fr * (1 - mask_spikes_fr.double()), 0)
 
             if phi is not None:
-                phi_d = phi(t, r_dc, model=self)
-                phi_fr = phi(t, r_fr, model=self)
+                phi_d = phi(t, r_dc, model=self, **kernel_kwargs)
+                phi_fr = phi(t, r_fr, model=self, **kernel_kwargs)
                 
                 if not biased:
                     sum_phi_d = torch.sum(phi_d, 1)
@@ -148,8 +150,9 @@ class CIMMDGLM(GLM, torch.nn.Module):
             if clip is not None:
                 torch.nn.utils.clip_grad_value_(self.parameters(), clip)
                 
-            if metrics is not None and (epoch % n_metrics) == 0:
-                _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
+            if (epoch % n_metrics) == 0:
+                _metrics = metrics(self, t, mask_spikes, mask_spikes_fr) if metrics is not None else {}
+#                 _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
                 if phi is not None:
                     _metrics['mmd'] = (torch.sum((torch.mean(phi_d.detach(), 1) - torch.mean(phi_fr.detach(), 1))**2)).item()
                 else:

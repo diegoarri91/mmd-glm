@@ -82,8 +82,9 @@ class TorchGLM(GLM, torch.nn.Module):
             else:
                 _loss = _nll
             
-            if metrics is not None and (epoch % n_metrics) == 0:
-                _metrics = metrics(self, t, mask_spikes, X, **metrics_kwargs)
+            if (epoch % n_metrics) == 0:
+                _metrics = metrics(self, t, mask_spikes, X,**metrics_kwargs) if metrics is not None else {}
+#                 _metrics = metrics(self, t, mask_spikes, X, **metrics_kwargs)
                 if l2:
                     _metrics['nll'] = _nll.detach()
                 if epoch == 0:

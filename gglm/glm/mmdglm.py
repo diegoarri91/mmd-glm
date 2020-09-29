@@ -69,8 +69,18 @@ class MMDGLM(GLM, torch.nn.Module):
                                dt * torch.sum(r_dc * (1 - mask_spikes.double())))
         return neg_log_likelihood
     
+    def _score(self, dt, mask_spikes, X):
+        with torch.no_grad():
+            theta_g = self.get_params().detach()
+            u = torch.einsum('tka,a->tk', X, theta_g)
+            r = self.non_linearity_torch(u)
+            exp_r = torch.exp(r * dt)
+            score = dt * torch.einsum('tka,tk->ka', X, r / (exp_r - 1) * mask_spikes.double()) - \
+                    dt * torch.einsum('tka,tk->ka', X, r * (1 - mask_spikes.double()))
+        return score
+    
     def train(self, t, mask_spikes, phi=None, kernel=None, stim=None, log_likelihood=False, lam_mmd=1e0, biased=False, 
-              biased_mmd=False, optim=None, scheduler=None, num_epochs=20, n_batch_fr=100, clip=None, verbose=False, 
+              biased_mmd=False, optim=None, scheduler=None, num_epochs=20, n_batch_fr=100, kernel_kwargs=None, control_variates=False, clip=None, verbose=False, 
               mmd_kwargs=None, metrics=None, n_metrics=25):
 
         n_d = mask_spikes.shape[1]
@@ -78,6 +88,8 @@ class MMDGLM(GLM, torch.nn.Module):
         loss, nll, mmd = [], [], []
         
         X_dc = torch.from_numpy(self.objective_kwargs(t, mask_spikes, stim=stim)['X']).double()
+        
+        kernel_kwargs = kernel_kwargs if kernel_kwargs is not None else {}
         
         if phi is not None:
             phi_d = phi(t, mask_spikes)
@@ -87,7 +99,7 @@ class MMDGLM(GLM, torch.nn.Module):
             idx_fr = (torch.from_numpy(idx_fr[0]), torch.from_numpy(idx_fr[1]))
             idx_d = np.triu_indices(n_d, k=1)
             idx_d = (torch.from_numpy(idx_d[0]), torch.from_numpy(idx_d[1]))
-            gramian_d_d = kernel(t, mask_spikes, mask_spikes)
+            gramian_d_d = kernel(t, mask_spikes, mask_spikes, **kernel_kwargs)
             
         _loss = torch.tensor([np.nan])
 
@@ -112,10 +124,12 @@ class MMDGLM(GLM, torch.nn.Module):
                     norm2_fr = (torch.sum(sum_log_proba_phi_fr * sum_phi_fr) - torch.sum(log_proba_phi * phi_fr)) / (n_batch_fr * (n_batch_fr - 1))
                     mmd_surr = 2 * norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_log_proba_phi_fr)
                 else:
-                    mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1))
+                    mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1)) # esto esta bien?
+#                     mmd_surr = 0.5 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)**(-1/2) * \
+#                                                (-2) * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1))
             else:
-                gramian_fr_fr = kernel(t, mask_spikes_fr, mask_spikes_fr)
-                gramian_d_fr = kernel(t, mask_spikes, mask_spikes_fr)
+                gramian_fr_fr = kernel(t, mask_spikes_fr, mask_spikes_fr, **kernel_kwargs)
+                gramian_d_fr = kernel(t, mask_spikes, mask_spikes_fr, **kernel_kwargs)
                 if not biased:
 #                     mmd_surr = torch.mean(((log_proba[:, None] + log_proba[None, :]) * gramian_fr_fr)[idx_fr]) \
 #                                               -2 * torch.mean(log_proba[None, :] * gramian_d_fr)
@@ -133,19 +147,51 @@ class MMDGLM(GLM, torch.nn.Module):
                 _loss = _loss + _nll
                 nll.append(_nll.item())
                         
-            _loss.backward()
-
+            if not control_variates:
+                _loss.backward()
+            else:
+                _loss.backward(retain_graph=True)
+            
+            if control_variates:
+                scores = self._score(dt, mask_spikes_fr, X_fr)
+                mean_score = torch.mean(scores, dim=0)
+                var_score = torch.var(scores, dim=0)
+                
+                if kernel is None:
+                    gramian_fr_fr = torch.sum(phi_fr[:, :, None] * phi_fr[:, None, :], dim=0)
+                    gramian_d_fr = torch.sum(phi_d[:, :, None] * phi_fr[:, None, :], dim=0)
+                    
+                mmd_weights = 2 * torch.sum(gramian_fr_fr, dim=1)[:, None] / (n_batch_fr * (n_batch_fr - 1)) - 2 * torch.sum(gramian_d_fr, dim=0)[:, None] / (n_batch_fr * n_d)
+                corr_score = torch.mean(scores * scores * mmd_weights, dim=0)
+                cov_score = corr_score - mean_score * torch.mean(scores * mmd_weights, dim=0)
+                a = cov_score / var_score
+                cum = 0
+                for param in self.parameters():
+                    n = param.shape[0]
+                    param.backward(a[cum:cum + n] * mean_score[cum:cum + n])
+                    cum += n
             if clip is not None:
                 torch.nn.utils.clip_grad_value_(self.parameters(), clip)
             
             if epoch % n_metrics == 0:
-                if metrics is not None:
-                    _metrics = metrics(self, t, mask_spikes, mask_spikes_fr)
+                _metrics = metrics(self, t, mask_spikes, mask_spikes_fr) if metrics is not None else {}
                 
                 if kernel is not None:
-                    _metrics['mmd'] = _mmd_from_gramians(t, gramian_d_d, gramian_fr_fr, gramian_d_fr, biased=biased)
+                    _metrics['mmd'] = _mmd_from_gramians(t, gramian_d_d, gramian_fr_fr, gramian_d_fr, biased=biased).item()
                 else:
-                    _metrics['mmd'] = _mmd_from_features(t, phi_d, phi_fr, biased=biased)
+                    _metrics['mmd'] = _mmd_from_features(t, phi_d, phi_fr, biased=biased).item()
+                    
+                
+#                 with torch.no_grad():
+#                     logp = log_proba.numpy()
+#                     scores = self._score(dt, mask_spikes_fr, X_fr).numpy()
+#                     _metrics['log_proba'] = np.array([np.mean(logp), np.min(logp), np.median(logp), np.max(logp)])
+#                     _metrics['scores'] = np.array([np.mean(scores, 0), np.min(scores, 0), np.median(scores, 0), np.max(scores, 0)])
+#                     _metrics['scores'] = np.array([np.mean(scores, 0), np.min(scores, 0), np.median(scores, 0), np.max(scores, 0)])
+#                     _metrics['norm2_fr'] = torch.sum(gramian_fr_fr) / (n_batch_fr * (n_batch_fr - 1))
+#                     _metrics['mean_dot'] = torch.mean(gramian_d_fr)
+#                     _metrics['norm2_fr'] = torch.mean(phi_fr**2)
+#                     _metrics['mean_dot'] = torch.mean(gramian_d_fr)
                     
 #                 if phi is not None:
 #                     if not biased:
