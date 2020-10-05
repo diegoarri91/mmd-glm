@@ -118,11 +118,9 @@ class MMDGLM(GLM, torch.nn.Module):
             if phi is not None:
                 phi_fr = phi(t, mask_spikes_fr, **kernel_kwargs)
                 
-                
                 # TODO.
-                fr = torch.sum(mask_spikes_fr, 0) / (dt * mask_spikes_fr.shape[0]) * 1000
-                mask_spikes_fr = mask_spikes_fr[:, fr < 50]
-                
+#                 fr = torch.sum(mask_spikes_fr, 0) / (dt * mask_spikes_fr.shape[0]) * 1000
+#                 mask_spikes_fr = mask_spikes_fr[:, fr < 50]
                 
                 if not biased:
                     log_proba_phi = log_proba[None, :] * phi_fr
@@ -132,6 +130,9 @@ class MMDGLM(GLM, torch.nn.Module):
                     mmd_surr = 2 * norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_log_proba_phi_fr)
                 else:
                     mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1)) # esto esta bien?
+                    
+#                     mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * (phi_fr - torch.mean(log_proba[None, :] * phi_fr, 1)[:, None]), 1))
+                    
 #                     mmd_surr /= torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)**0.5
 #                     mmd_surr = 0.5 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)**(-1/2) * \
 #                                                (-2) * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1))

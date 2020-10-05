@@ -60,6 +60,7 @@ def plot_layout_fit(figsize=(16, 12)):
     axac = plt.subplot2grid((nrows, ncols), (2 * r1, c2 + c1), rowspan=r1, colspan=c1)
     axac.set_xlabel('time (ms)')
     axac.set_ylabel('autocorrelation')
+    axac.ticklabel_format(axis="y", style="sci", scilimits=(0,0))
     
     fig.subplots_adjust(hspace=0.7, wspace=0.8)
     
