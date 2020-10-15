@@ -10,9 +10,6 @@ paper = {'figure.figsize': (3.5, 3.),  'axes.titlesize': 18, 'axes.labelsize': 1
          'legend.fontsize': tick_labelsize, 'axes.spines.top': False, 'axes.spines.right': False,
          'boxplot.flierprops.markersize': 2}
 
-#          'axes.prop_cycle': cycler(color=['dodgerblue', '#CD4545', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-#                                                             '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])
-
 width, capsize, space = 15, 3, 0.5
 strip_ms = 2.5
 scatter_ms = 12
