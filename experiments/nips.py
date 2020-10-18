@@ -16,3 +16,4 @@ paper = {'figure.figsize': (3.5, 3.),  'axes.titlesize': 20, 'axes.labelsize': 2
 width, capsize, space = 15, 3, 0.5
 strip_ms = 2.5
 scatter_ms = 12
+ms_raster = 0.95

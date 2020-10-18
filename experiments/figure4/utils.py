@@ -164,7 +164,7 @@ def load_file(path, t, n_samples=8000):
     autocov_mmd = np.mean(raw_autocorrelation(mask_spikes_fr_mmd, biased=True), 1)
     ker_name = dic['ker_name']
     
-    return ker_name, loss_mmd, mmdi, nll_normed_train_mmd, glm, autocov_mmd
+    return dic, ker_name, loss_mmd, mmdi, nll_normed_train_mmd, glm, autocov_mmd
 
 
 def plot_layout_fig4(figsize):
@@ -209,29 +209,39 @@ def plot_layout_fig4(figsize):
     axlabels = plt.subplot2grid((nrows, ncols), (0, c1 + 3 * c2), rowspan=r2, colspan=c2)
 #     ax03 = plt.subplot2grid((nrows, ncols), (0, c1 + 3 * c2), rowspan=r2, colspan=c2)
     axcia = plt.subplot2grid((nrows, ncols), (0, c1 + 2 * c2), rowspan=r2a, colspan=c2)
-    axcib = plt.subplot2grid((nrows, ncols), (r2a, c1 + 2 * c2), rowspan=r2b, colspan=c2, sharex=axcia)
-    broken_yaxis(axcia, axcib)
+    axci = (axcia, plt.subplot2grid((nrows, ncols), (r2a, c1 + 2 * c2), rowspan=r2b, colspan=c2, sharex=axcia))
+    broken_yaxis(axci[0], axci[1])
     
     axll_val = plt.subplot2grid((nrows, ncols), (r2, c1), rowspan=r2, colspan=c2, sharey=axll_train)
     myplt.set_labels(axll_val, ylabel='val log-L')
     
     axmuisi = plt.subplot2grid((nrows, ncols), (r2, c1 + c2), rowspan=r2, colspan=c2)
     
-    axcv = plt.subplot2grid((nrows, ncols), (r2, c1 + 2 * c2), rowspan=r2, colspan=c2)
-    myplt.set_labels(axcv, ylabel='cv isi')
+#     axcv = plt.subplot2grid((nrows, ncols), (r2, c1 + 2 * c2), rowspan=r2, colspan=c2)
+    axcv1 = plt.subplot2grid((nrows, ncols), (r2, c1 + 2 * c2), rowspan=r2a, colspan=c2)
+    axcv = (axcv1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 2 * c2), rowspan=r2b, colspan=c2, sharex=axcv1))
+    broken_yaxis(axcv[0], axcv[1])
+    myplt.set_labels(axcv[1], ylabel='cv isi')
     
-    axac = plt.subplot2grid((nrows, ncols), (r2, c1 + 3 * c2), rowspan=r2, colspan=c2)
+#     axac = plt.subplot2grid((nrows, ncols), (r2, c1 + 3 * c2), rowspan=r2, colspan=c2)
+    axac1 = plt.subplot2grid((nrows, ncols), (r2, c1 + 3 * c2), rowspan=r2a, colspan=c2)
+    axac = (axac1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 3 * c2), rowspan=r2b, colspan=c2, sharex=axac1))
+    broken_yaxis(axac[0], axac[1])
+    myplt.set_labels(axac[1], ylabel='rmse autocor')
     
     axbias = inset_axes(axeta, width=1.1, height=0.5, bbox_to_anchor=(0, 0, .9, .9),
                    bbox_transform=axeta.transAxes)
     axbias.set_ylabel('exp(b) (Hz)', fontsize=tick_labelsize)
 
     ax11 = plt.subplot2grid((nrows, ncols), (0, c1 + 4 * c2), rowspan=r2, colspan=c2)
-    ax21 = plt.subplot2grid((nrows, ncols), (r2, c1 + 4 * c2), rowspan=r2, colspan=c2)
+#     ax21 = plt.subplot2grid((nrows, ncols), (r2, c1 + 4 * c2), rowspan=r2, colspan=c2)
+    axpdiv1 = plt.subplot2grid((nrows, ncols), (r2, c1 + 4 * c2), rowspan=r2a, colspan=c2)
+    axpdiv = (axpdiv1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 4 * c2), rowspan=r2b, colspan=c2, sharex=axpdiv1))
+    myplt.set_labels(axpdiv[1], ylabel='p(diverge)')
     ax3 = None
     ax4 = None
     
-    return fig, (axeta, axbias, axll_train, axfra, axfrb, axlabels, axcia, axcib, axll_val, axmuisi, axcv, axac, ax11, ax21, ax3, ax4)
+    return fig, (axeta, axbias, axll_train, axfra, axfrb, axlabels, axci, axll_val, axmuisi, axcv, axac, ax11, axpdiv, ax3, ax4)
 
 
 def plot_fit(loss_mmd=None, nll_normed_train_mmd=None, mmdi=None, glm=None, autocov_mmd=None, argf_autocorr=None, 

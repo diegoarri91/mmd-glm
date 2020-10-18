@@ -1,6 +1,12 @@
 import matplotlib.pyplot as plt
 
 
+def plot_errorbar(y, yerr, color, ax, ms=1, mew=1, **kwargs):
+    for ii, (_y, _yerr, c) in enumerate(zip(y, yerr, color)):
+        ax.plot(ii, _y, color=c, marker='_', ms=ms, mew=mew)
+        ax.errorbar(ii, _y, yerr=_yerr, color=c, fmt='_', ms=0, **kwargs)
+
+
 def plot_layout_fit(figsize=(16, 12)):
     r1 = 2
     r2 = int(r1 / 2)
