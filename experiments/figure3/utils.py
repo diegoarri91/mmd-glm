@@ -4,13 +4,13 @@ import seaborn as sns
 import myplt
 
 
-def plot_layout_fig3(f):
+def plot_layout_fig3(figsize):
     r1, r2, r3 = 1, 2, 2
     c1, c2, c3 = 3, 2, 1
     nrows = 3 * r2
     ncols = c1 + c2
     xlabels = ['MMD', 'L2', 'ML']
-    fig = plt.figure(figsize=(1 * f, 1 * f))
+    fig = plt.figure(figsize=figsize)
     
     axd = plt.subplot2grid((nrows, ncols), (0, 0), rowspan=r1, colspan=c1)
     axd.tick_params(axis='both', labelbottom=False, labelleft=False)
