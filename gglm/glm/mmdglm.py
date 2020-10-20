@@ -129,13 +129,7 @@ class MMDGLM(GLM, torch.nn.Module):
                     norm2_fr = (torch.sum(sum_log_proba_phi_fr * sum_phi_fr) - torch.sum(log_proba_phi * phi_fr)) / (n_batch_fr * (n_batch_fr - 1))
                     mmd_surr = 2 * norm2_fr - 2 / (n_d * n_batch_fr) * torch.sum(sum_phi_d * sum_log_proba_phi_fr)
                 else:
-                    mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1)) # esto esta bien?
-                    
-#                     mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * (phi_fr - torch.mean(log_proba[None, :] * phi_fr, 1)[:, None]), 1))
-                    
-#                     mmd_surr /= torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)**0.5
-#                     mmd_surr = 0.5 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1))**2)**(-1/2) * \
-#                                                (-2) * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1))
+                    mmd_surr = -2 * torch.sum((torch.mean(phi_d, 1) - torch.mean(phi_fr, 1)) * torch.mean(log_proba[None, :] * phi_fr, 1))
             else:
                 gramian_fr_fr = kernel(t, mask_spikes_fr, mask_spikes_fr, **kernel_kwargs)
                 gramian_d_fr = kernel(t, mask_spikes, mask_spikes_fr, **kernel_kwargs)
@@ -179,17 +173,20 @@ class MMDGLM(GLM, torch.nn.Module):
                     n = param.shape[0]
                     param.backward(a[cum:cum + n] * mean_score[cum:cum + n])
                     cum += n
+                    
             if clip is not None:
                 torch.nn.utils.clip_grad_value_(self.parameters(), clip)
             
             if epoch % n_metrics == 0:
-                _metrics = metrics(self, t, mask_spikes, mask_spikes_fr) if metrics is not None else {}
                 
                 if kernel is not None:
+                    _metrics = metrics(self, t, mask_spikes, mask_spikes_fr, gramian_d_d=gramian_d_d, log_proba=log_proba, 
+                                       gramian_fr_fr=gramian_fr_fr, gramian_d_fr=gramian_d_fr) if metrics is not None else {}
                     _metrics['mmd'] = _mmd_from_gramians(t, gramian_d_d, gramian_fr_fr, gramian_d_fr, biased=biased).item()
                 else:
+                    _metrics = metrics(self, t, mask_spikes, mask_spikes_fr, log_proba=log_proba, 
+                                       phi_d=phi_d, phi_fr=phi_fr) if metrics is not None else {}
                     _metrics['mmd'] = _mmd_from_features(t, phi_d, phi_fr, biased=biased).item()
-                    
                 
 #                 with torch.no_grad():
 #                     logp = log_proba.numpy()

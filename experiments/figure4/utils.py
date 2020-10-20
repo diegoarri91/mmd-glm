@@ -17,17 +17,21 @@ from sptr.sptr import SpikeTrain
 
 from nips import *
 
-def after_metrics(model, t, mask_spikes, mask_spikes_fr):
+def after_metrics(model, t, mask_spikes, mask_spikes_fr, **kwargs):
     b_grad = model.b.grad.detach().item()
     eta_coefs_grad = model.eta_coefs.grad.detach().clone().numpy()
     T_train = t[-1] - t[0] + t[1]
     fr = np.sum(mask_spikes_fr.double().numpy(), 0) / T_train * 1000
     mu_fr = np.mean(fr) 
     fr_max = np.max(fr)
-    return dict(b_grad=b_grad, eta_coefs_grad=eta_coefs_grad, mu_fr=mu_fr, fr_max=fr_max)
+    phi_d = kwargs.get('phi_d', None)
+    phi_fr = kwargs.get('phi_fr', None)
+    log_proba = kwargs.get('log_proba', None)
+    return dict(b_grad=b_grad, eta_coefs_grad=eta_coefs_grad, mu_fr=mu_fr, fr_max=fr_max, 
+                phi_d=phi_d, phi_fr=phi_fr, log_proba=log_proba)
 
 
-def fun_metrics_mmd(model, t, mask_spikes, mask_spikes_fr):
+def fun_metrics_mmd(model, t, mask_spikes, mask_spikes_fr, **kwargs):
     T_train = t[-1] - t[0] + t[1]
     fr = np.sum(mask_spikes_fr.double().numpy(), 0) / T_train * 1000
     mu_fr = np.mean(fr)
@@ -35,7 +39,12 @@ def fun_metrics_mmd(model, t, mask_spikes, mask_spikes_fr):
     min_fr = np.min(fr)
     b_grad = model.b.grad.detach().item()
     eta0_grad = model.eta_coefs.grad.detach().numpy().copy()
-    return dict(mu_fr=mu_fr, max_fr=max_fr, min_fr=min_fr, mu2_fr=np.mean(fr**2), b_grad=b_grad, eta0_grad=eta0_grad)
+    phi_d = kwargs.get('phi_d', None)
+    phi_fr = kwargs.get('phi_fr', None)
+    log_proba = kwargs.get('log_proba', None)
+#     phi_d, phi_fr, log_proba = phi_d.detach().numpy(), phi_fr.detach().numpy(), log_proba.detach().numpy()
+    return dict(mu_fr=mu_fr, max_fr=max_fr, min_fr=min_fr, mu2_fr=np.mean(fr**2), b_grad=b_grad, eta0_grad=eta0_grad, 
+                phi_d=phi_d, phi_fr=phi_fr, log_proba=log_proba)
 
 
 def cum_isi(isi, bins=None):
@@ -197,51 +206,61 @@ def plot_layout_fig4(figsize):
     axeta = plt.subplot2grid((nrows, ncols), (0, 0), rowspan=nrows, colspan=c1)
     myplt.set_labels(axeta, xlabel='time (ms)', ylabel='gain', title='history filter')
     
+    axll_val = plt.subplot2grid((nrows, ncols), (r2, c1), rowspan=r2, colspan=c2)#, sharey=axll_train)
+    myplt.set_labels(axll_val, ylabel='LL val')
+    
     axll_train = plt.subplot2grid((nrows, ncols), (0, c1), rowspan=r2, colspan=c2)
-    myplt.set_labels(axll_train, ylabel='train log-L')
+    myplt.set_labels(axll_train, ylabel='LL train')
     
-    axfra = plt.subplot2grid((nrows, ncols), (0, c1 + c2), rowspan=r2a, colspan=c2)
+#     axfra = plt.subplot2grid((nrows, ncols), (0, c1 + c2), rowspan=r2a, colspan=c2)
+#     axfrb = plt.subplot2grid((nrows, ncols), (r2a, c1 + c2), rowspan=r2b, colspan=c2, sharex=axfra)
+#     axfrb.set_ylabel('firing rate (Hz)')
+#     broken_yaxis(axfra, axfrb)
     
-    axfrb = plt.subplot2grid((nrows, ncols), (r2a, c1 + c2), rowspan=r2b, colspan=c2, sharex=axfra)
-    axfrb.set_ylabel('firing rate (Hz)')
-    broken_yaxis(axfra, axfrb)
-    
-    axlabels = plt.subplot2grid((nrows, ncols), (0, c1 + 3 * c2), rowspan=r2, colspan=c2)
-#     ax03 = plt.subplot2grid((nrows, ncols), (0, c1 + 3 * c2), rowspan=r2, colspan=c2)
-    axcia = plt.subplot2grid((nrows, ncols), (0, c1 + 2 * c2), rowspan=r2a, colspan=c2)
-    axci = (axcia, plt.subplot2grid((nrows, ncols), (r2a, c1 + 2 * c2), rowspan=r2b, colspan=c2, sharex=axcia))
-    broken_yaxis(axci[0], axci[1])
-    
-    axll_val = plt.subplot2grid((nrows, ncols), (r2, c1), rowspan=r2, colspan=c2, sharey=axll_train)
-    myplt.set_labels(axll_val, ylabel='val log-L')
-    
-    axmuisi = plt.subplot2grid((nrows, ncols), (r2, c1 + c2), rowspan=r2, colspan=c2)
+#     axlabels = plt.subplot2grid((nrows, ncols), (0, c1 + 3 * c2), rowspan=r2, colspan=c2)
+    axlabels = None
+
+#     axcia = plt.subplot2grid((nrows, ncols), (r2, c1 + 3 * c2), rowspan=r2a, colspan=c2)
+#     axci = (axcia, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 3 * c2), rowspan=r2b, colspan=c2, sharex=axcia))
+#     broken_yaxis(axci[0], axci[1])
+    axci = None
     
 #     axcv = plt.subplot2grid((nrows, ncols), (r2, c1 + 2 * c2), rowspan=r2, colspan=c2)
-    axcv1 = plt.subplot2grid((nrows, ncols), (r2, c1 + 2 * c2), rowspan=r2a, colspan=c2)
-    axcv = (axcv1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 2 * c2), rowspan=r2b, colspan=c2, sharex=axcv1))
+    axcv1 = plt.subplot2grid((nrows, ncols), (r2, c1 + c2), rowspan=r2a, colspan=c2)
+    axcv = (axcv1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + c2), rowspan=r2b, colspan=c2, sharex=axcv1))
     broken_yaxis(axcv[0], axcv[1])
     myplt.set_labels(axcv[1], ylabel='cv isi')
     
-#     axac = plt.subplot2grid((nrows, ncols), (r2, c1 + 3 * c2), rowspan=r2, colspan=c2)
-    axac1 = plt.subplot2grid((nrows, ncols), (r2, c1 + 3 * c2), rowspan=r2a, colspan=c2)
-    axac = (axac1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 3 * c2), rowspan=r2b, colspan=c2, sharex=axac1))
-    broken_yaxis(axac[0], axac[1])
-    myplt.set_labels(axac[1], ylabel='rmse autocor')
+#     axmuisi = plt.subplot2grid((nrows, ncols), (r2, c1 + c2), rowspan=r2, colspan=c2)
+    axmuisi = plt.subplot2grid((nrows, ncols), (0, c1 + c2), rowspan=r2b, colspan=c2)
+    axmuisi = (axmuisi, plt.subplot2grid((nrows, ncols), (r2b, c1 + c2), rowspan=r2a, colspan=c2, sharex=axmuisi))
+    axmuisi[0].set_ylabel('mean isi (ms)')
+    broken_yaxis(axmuisi[0], axmuisi[1])
+    
+    axac = plt.subplot2grid((nrows, ncols), (r2, c1 + 2 * c2), rowspan=r2, colspan=c2)
+#     axac1 = plt.subplot2grid((nrows, ncols), (r2, c1 + 2 * c2), rowspan=r2a, colspan=c2)
+#     axac = (axac1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 2 * c2), rowspan=r2b, colspan=c2, sharex=axac1))
+#     broken_yaxis(axac[0], axac[1])
+    myplt.set_labels(axac, ylabel='rmse autocor')
     
     axbias = inset_axes(axeta, width=1.1, height=0.5, bbox_to_anchor=(0, 0, .9, .9),
                    bbox_transform=axeta.transAxes)
-    axbias.set_ylabel('exp(b) (Hz)', fontsize=tick_labelsize)
+#     axbias.set_ylabel('exp(b) (Hz)', fontsize=tick_labelsize)
+    axbias.set_ylabel('bias', fontsize=tick_labelsize)
 
-    ax11 = plt.subplot2grid((nrows, ncols), (0, c1 + 4 * c2), rowspan=r2, colspan=c2)
+#     ax11 = plt.subplot2grid((nrows, ncols), (0, c1 + 4 * c2), rowspan=r2, colspan=c2)
+    ax11 = None
 #     ax21 = plt.subplot2grid((nrows, ncols), (r2, c1 + 4 * c2), rowspan=r2, colspan=c2)
-    axpdiv1 = plt.subplot2grid((nrows, ncols), (r2, c1 + 4 * c2), rowspan=r2a, colspan=c2)
-    axpdiv = (axpdiv1, plt.subplot2grid((nrows, ncols), (r2 + r2a, c1 + 4 * c2), rowspan=r2b, colspan=c2, sharex=axpdiv1))
+    
+    axpdiv1 = plt.subplot2grid((nrows, ncols), (0, c1 + 2 * c2), rowspan=r2a, colspan=c2)
+    axpdiv = (axpdiv1, plt.subplot2grid((nrows, ncols), (r2a, c1 + 2 * c2), rowspan=r2b, colspan=c2, sharex=axpdiv1))
+    broken_yaxis(axpdiv[0], axpdiv[1])
     myplt.set_labels(axpdiv[1], ylabel='p(diverge)')
+    
     ax3 = None
     ax4 = None
     
-    return fig, (axeta, axbias, axll_train, axfra, axfrb, axlabels, axci, axll_val, axmuisi, axcv, axac, ax11, axpdiv, ax3, ax4)
+    return fig, (axeta, axbias, axll_train, axmuisi, axlabels, axci, axll_val, axmuisi, axcv, axac, ax11, axpdiv, ax3, ax4)
 
 
 def plot_fit(loss_mmd=None, nll_normed_train_mmd=None, mmdi=None, glm=None, autocov_mmd=None, argf_autocorr=None, 
