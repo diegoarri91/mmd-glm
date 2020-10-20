@@ -185,15 +185,15 @@ def plot_layout_fig4(figsize):
         ax1.tick_params(axis='x', labeltop=False, labelbottom=False, length=0, width=0)
     #     ax1.set_xticks([])
     #     ax2.xaxis.tick_bottom()
-        d = .015  # how big to make the diagonal lines in axes coordinates
+        d = .025  # how big to make the diagonal lines in axes coordinates
         # arguments to pass to plot, just so we don't keep repeating them
-    #     kwargs = dict(transform=ax1.transAxes, color='k', clip_on=False)
-    #     ax1.plot((-d, +d), (-d, +d), **kwargs)        # top-left diagonal
-    # #     ax1.plot((1 - d, 1 + d), (-d, +d), **kwargs)  # top-right diagonal
+        kwargs = dict(transform=ax1.transAxes, lw=1, color='k', clip_on=False)
+#         ax1.plot((-d, +d), (-d, +d), **kwargs)        # top-left diagonal
+        ax1.plot((-d, +d), (0, 0), **kwargs)        # top-left diagonal
 
-    #     kwargs.update(transform=ax2.transAxes)  # switch to the bottom axes
-    #     ax2.plot((-d, +d), (1 - d, 1 + d), **kwargs)  # bottom-left diagonal
-    #     ax2.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # bottom-right diagonal
+        kwargs.update(transform=ax2.transAxes)  # switch to the bottom axes
+#         ax2.plot((-d, +d), (1 - d, 1 + d), **kwargs)  # bottom-left diagonal
+        ax2.plot((-d, +d), (1, 1), **kwargs)  # bottom-left diagonal
         return ax1, ax2
     
     r1, c1 = 6, 2
