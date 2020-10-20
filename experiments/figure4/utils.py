@@ -243,7 +243,9 @@ def plot_layout_fig4(figsize):
 #     broken_yaxis(axac[0], axac[1])
     myplt.set_labels(axac, ylabel='rmse autocor')
     
-    axbias = inset_axes(axeta, width=1.1, height=0.5, bbox_to_anchor=(0, 0, .9, .9),
+#     axbias = inset_axes(axeta, width=1.1, height=0.5, bbox_to_anchor=(0, 0, .9, .9),
+#                    bbox_transform=axeta.transAxes)
+    axbias = inset_axes(axeta, width=1.7, height=0.5, bbox_to_anchor=(0, 0, .9, .9),
                    bbox_transform=axeta.transAxes)
 #     axbias.set_ylabel('exp(b) (Hz)', fontsize=tick_labelsize)
     axbias.set_ylabel('bias', fontsize=tick_labelsize)
