@@ -7,11 +7,10 @@ from ..utils import get_dt, shift_array
 
 class GLM:
 
-    def __init__(self, u0=0, kappa=None, eta=None, noise='poisson'):
+    def __init__(self, u0=0, kappa=None, eta=None):
         self.u0 = u0
         self.kappa= kappa
         self.eta = eta
-        self.noise = noise
 
     def sample(self, t, stim=None, shape=(), full_output=False):
 
