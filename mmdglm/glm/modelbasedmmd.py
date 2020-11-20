@@ -5,14 +5,11 @@ from .base import GLM
 from ..utils import get_dt, shift_array
 
 
-class MBMMDGLM(GLM, torch.nn.Module):
+class ModelBasedMMDGLM(GLM, torch.nn.Module):
 
-    def __init__(self, u0=0, kappa=None, eta=None, non_linearity='exp'):
+    def __init__(self, u0=0, kappa=None, eta=None):
         torch.nn.Module.__init__(self)
-        GLM.__init__(self, u0=u0, kappa=kappa, eta=eta, non_linearity=non_linearity)
-        
-        n_kappa = 0 if self.kappa is None else self.kappa.nbasis
-        n_eta = 0 if self.eta is None else self.eta.nbasis
+        GLM.__init__(self, u0=u0, kappa=kappa, eta=eta)
 
         b = torch.tensor([u0]).double()
         self.register_parameter("b", torch.nn.Parameter(b))
@@ -20,6 +17,7 @@ class MBMMDGLM(GLM, torch.nn.Module):
         if self.kappa is not None:
             kappa_coefs = torch.from_numpy(kappa.coefs)
             self.register_parameter("kappa_coefs", torch.nn.Parameter(kappa_coefs))
+            
         if self.eta is not None:
             eta_coefs = torch.from_numpy(eta.coefs)
             self.register_parameter("eta_coefs", torch.nn.Parameter(eta_coefs))
@@ -52,14 +50,6 @@ class MBMMDGLM(GLM, torch.nn.Module):
             theta[1 + n_kappa:] = self.eta_coefs
         theta = theta.double()
         return theta
-    
-    def _log_likelihood(self, dt, mask_spikes, X_dc):
-        theta_g = self.get_params()
-        u_dc = torch.einsum('tka,a->tk', X_dc, theta_g)
-        r_dc = torch.exp(u_dc)
-        neg_log_likelihood = -(torch.sum(torch.log(1 - torch.exp(-dt * r_dc) + 1e-24) * mask_spikes.double()) - \
-                               dt * torch.sum(r_dc * (1 - mask_spikes.double())))
-        return neg_log_likelihood
     
     def train(self, t, mask_spikes, phi=None, kernel=None, stim=None, log_likelihood=False, lam_mmd=1e0, biased=False, 
               optim=None, clip=None, num_epochs=20, n_batch_fr=100, kernel_kwargs=None, verbose=False, metrics=None, 
@@ -160,3 +150,11 @@ class MBMMDGLM(GLM, torch.nn.Module):
         
         return loss, nll, metrics_list
 
+
+    def _log_likelihood(self, dt, mask_spikes, X_dc):
+        theta_g = self.get_params()
+        u_dc = torch.einsum('tka,a->tk', X_dc, theta_g)
+        r_dc = torch.exp(u_dc)
+        neg_log_likelihood = -(torch.sum(torch.log(1 - torch.exp(-dt * r_dc) + 1e-24) * mask_spikes.double()) - \
+                               dt * torch.sum(r_dc * (1 - mask_spikes.double())))
+        return neg_log_likelihood

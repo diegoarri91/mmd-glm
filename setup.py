@@ -7,6 +7,6 @@ setup(name='mmd-glm',
     author='Diego M. Arribas',
     author_email='diegoarri91@gmail.com',
     license='MIT',
-    install_requires=['numpy', 'torch'],
+    install_requires=['numpy', 'scipy', 'torch'],
     packages=['mmdglm']
       )

@@ -1,4 +1,3 @@
-from functools import partial
 import pickle
 
 import numpy as np
@@ -8,62 +7,47 @@ from ..utils import get_dt, shift_array
 
 class GLM:
 
-    def __init__(self, u0=0, kappa=None, eta=None, non_linearity='exp', noise='poisson'):
+    def __init__(self, u0=0, kappa=None, eta=None, noise='poisson'):
         self.u0 = u0
         self.kappa= kappa
         self.eta = eta
         self.noise = noise
 
-    def copy(self):
-        return self.__class__(u0=self.u0, eta=self.eta.copy())
-
-    def save(self, path):
-        params = dict(u0=self.u0, eta=self.eta)
-        with open(path, "wb") as fit_file:
-            pickle.dump(params, fit_file)
-
-    @classmethod
-    def load(cls, path):
-        with open(path, "rb") as fit_file:
-            params = pickle.load(fit_file)
-        glm = cls(u0=params['u0'], eta=params['eta'])
-        return glm
-
-    def sample(self, t, stim=None, shape=None, full=False):
+    def sample(self, t, stim=None, shape=(), full=False):
 
         dt = get_dt(t)
         
         stim_shape = () if stim is None else stim.shape[1:]
-        trials_shape = () if shape is None else shape
-        shape = (len(t), ) + stim_shape + trials_shape
+        shape = (len(t), ) + stim_shape + shape
             
-        r = np.zeros(shape) * np.nan
+        u = np.full(shape, self.u0)
+        r = np.zeros(shape)
         eta_conv = np.zeros(shape)
         mask_spikes = np.zeros(shape, dtype=bool)
 
-        if self.kappa is not None and stim is not None:
+        if stim is not None:
             kappa_conv = self.kappa.convolve_continuous(t, stim)
-            kappa_conv = np.concatenate((np.zeros((1,) + stim.shape[1:]), kappa_conv[:-1]), axis=0)
-            u = self.u0 + kappa_conv
-            for ii, dim in enumerate(trials_shape):
-                kappa_conv = np.stack([kappa_conv] * dim, ii + stim.ndim)
-                u = np.stack([u] * dim, ii + stim.ndim)
+            kappa_conv = np.pad(kappa_conv, ((1, 0),) + ((0, 0),) * (stim.ndim - 1))[:-1]
+            kappa_conv = np.expand_dims(kappa_conv, axis=tuple(range(stim.ndim, len(shape))))
+            u = u + kappa_conv
+#             padding = np.zeros((1,) + stim.shape[1:])
+#             kappa_conv = np.concatenate((padding, kappa_conv[:-1]), axis=0)
         else:
-            kappa_conv = np.zeros(shape)
-            u = np.ones(shape) * self.u0
+            kappa_conv = None
 
         j = 0
         while j < len(t):
 
-            u[j, ...] = u[j, ...] + eta_conv[j, ...]
-            r[j, ...] = np.exp(u[j, ...])
-            p_spk = 1 - np.exp(-r[j, ...] * dt)
+            u[j] = u[j] + eta_conv[j]
+            r[j] = np.exp(u[j])
+            p_spk = 1 - np.exp(-r[j] * dt)
             
             rand = np.random.rand(*shape[1:])
-            mask_spikes[j, ...] = p_spk > rand
+            mask_spikes[j] = p_spk > rand
 
-            if self.eta is not None and np.any(mask_spikes[j, ...]) and j < len(t) - 1:
-                eta_conv[j + 1:, mask_spikes[j, ...]] += self.eta.interpolate(t[j + 1:] - t[j + 1])[:, None]
+            if np.any(mask_spikes[j]) and self.eta is not None and j < len(t) - 1:
+                eta_int = self.eta.interpolate(t[j + 1:] - t[j + 1])
+                eta_conv[j + 1:, mask_spikes[j]] += eta_int[:, None]
 
             j += 1
         
@@ -152,3 +136,18 @@ class GLM:
 
     def objective_kwargs(self, t, mask_spikes, stim=None):
         return self.likelihood_kwargs(t=t, mask_spikes=mask_spikes, stim=stim)
+
+    def copy(self):
+        return self.__class__(u0=self.u0, kappa=self.kappa.copy(), eta=self.eta.copy())
+
+    def save(self, path):
+        params = dict(u0=self.u0, kappa=self.kappa, eta=self.eta)
+        with open(path, "wb") as fit_file:
+            pickle.dump(params, fit_file)
+
+    @classmethod
+    def load(cls, path):
+        with open(path, "rb") as fit_file:
+            params = pickle.load(fit_file)
+        glm = cls(u0=params['u0'], kappa=params['kappa'], eta=params['eta'])
+        return glm
