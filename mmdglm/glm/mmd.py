@@ -84,7 +84,7 @@ class MMDGLM(GLM, torch.nn.Module):
         dt = torch.tensor([get_dt(t)])
         loss, nll, mmd = [], [], []
         
-        X_dc = torch.from_numpy(self.objective_kwargs(t, mask_spikes, stim=stim)['X']).double()
+        X_dc = torch.from_numpy(self.likelihood_kwargs(t.numpy(), mask_spikes.numpy(), stim=stim)['X']).float()
         
         kernel_kwargs = kernel_kwargs if kernel_kwargs is not None else {}
         
