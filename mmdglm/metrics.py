@@ -71,6 +71,13 @@ def time_rescale_transform(dt, mask_spikes, r):
     return z, ks_stats
 
 
+def negative_log_likelihood(dt, mask_spikes, r):
+    ll = torch.sum(
+                torch.log(1 - torch.exp(-dt * r) * mask_spikes + 1e-24)
+            ) - dt * torch.sum(r * (1 - mask_spikes))
+    return -ll
+
+
 def _mmd_from_gramians(t, gramian_11, gramian_22, gramian_12, biased=False):
     n1, n2 = gramian_11.shape[0], gramian_22.shape[0]
     if not biased:
@@ -97,3 +104,12 @@ def _mmd_from_features(t, phi_1, phi_2, biased=False):
         mean_dot = torch.sum(sum_phi_1 * sum_phi_2) / (n1 * n2)     
         mmd = norm2_1 + norm2_2 - 2 * mean_dot
     return mmd
+
+
+def _append_metrics(metrics_list, _metrics):
+    if metrics_list is None:
+        metrics_list = {key:[val] for key, val in _metrics.items()}
+    else:
+        for key, val in _metrics.items():
+            metrics_list[key].append(val)
+    return metrics_list

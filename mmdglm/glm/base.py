@@ -8,7 +8,7 @@ from ..utils import get_dt, shift_array
 class GLM:
 
     def __init__(self, u0=0, kappa=None, eta=None):
-        self.u0 = u0
+        self.u0 = float(u0)
         self.kappa= kappa
         self.eta = eta
 
@@ -34,7 +34,7 @@ class GLM:
 
         j = 0
         while j < len(t):
-
+    
             u[j] = u[j] + eta_conv[j]
             r[j] = np.exp(u[j])
             p_spk = 1 - np.exp(-r[j] * dt)
@@ -45,7 +45,7 @@ class GLM:
             if np.any(mask_spikes[j]) and self.eta is not None and j < len(t) - 1:
                 eta_int = self.eta.interpolate(t[j + 1:] - t[j + 1])
                 eta_conv[j + 1:, mask_spikes[j]] += eta_int[:, None]
-
+                
             j += 1
         
         if full_output:
