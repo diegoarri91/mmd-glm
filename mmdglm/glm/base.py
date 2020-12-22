@@ -1,6 +1,7 @@
 import pickle
 
 import numpy as np
+import torch
 
 from ..utils import get_dt, shift_array
 
@@ -51,6 +52,7 @@ class GLM:
         if full_output:
             return kappa_conv, eta_conv, u, r, mask_spikes
         else:
+            u, r, mask_spikes = torch.from_numpy(u), torch.from_numpy(r), torch.from_numpy(mask_spikes)
             return u, r, mask_spikes
 
     def sample_conditioned(self, t, mask_spikes, stim=None, full_output=False):

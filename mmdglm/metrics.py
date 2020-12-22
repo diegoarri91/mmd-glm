@@ -3,12 +3,12 @@ from scipy.stats import kstest
 import torch
 
 
-def bernoulli_log_likelihood_poisson_process(mask_spikes):
-    n_spk = np.sum(mask_spikes)
-    n_nospk = mask_spikes.size - n_spk
-    p_spk = n_spk / mask_spikes.size
-    log_likelihood_poisson_process = n_spk * np.log(p_spk) + n_nospk * np.log(1 - p_spk)
-    return log_likelihood_poisson_process
+def bernoulli_log_likelihood_pp(mask_spikes):
+    n_spk = torch.sum(mask_spikes)
+    n_nospk = mask_spikes.numel() - n_spk
+    p_spk = n_spk / mask_spikes.numel()
+    log_likelihood_poisson_process = n_spk * np.log(p_spk) + n_nospk * torch.log(1 - p_spk)
+    return log_likelihood_poisson_process.item()
 
 
 def poisson_log_likelihood_poisson_process(dt, mask_spikes, u, r):

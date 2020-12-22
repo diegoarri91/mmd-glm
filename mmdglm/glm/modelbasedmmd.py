@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 from .torch import TorchGLM
-from ..metrics import _append_metrics, _mmd_from_features, _mmd_from_gramians
+from ..metrics import _append_metrics, _mmd_from_features, _mmd_from_gramians, negative_log_likelihood
 from ..utils import get_dt, shift_array
 
 
@@ -12,8 +12,8 @@ class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
         torch.nn.Module.__init__(self)
         TorchGLM.__init__(self, u0=u0, kappa=kappa, eta=eta)
         
-    def train(self, t, mask_spikes, stim=None, phi=None, kernel=None, log_likelihood=False, lam_mmd=1e0, biased=False, 
-              n_batch_fr=50, kernel_kwargs=None, num_epochs=20, optim=None, clip=None, metrics=None, n_metrics=10, verbose=False):
+    def train(self, t, mask_spikes, stim=None, phi=None, kernel=None, log_likelihood=True, alpha_mmd=1e0, biased=True, 
+              n_batch_fr=50, kernel_kwargs=None, num_epochs=20, optim=None, clip=None, metrics=None, n_metrics=1, verbose=False):
 
         n_d = mask_spikes.shape[1]
     
@@ -29,8 +29,8 @@ class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
         for epoch in range(num_epochs):
             
             if verbose:
-                print('\r', 'epoch', epoch, 'of', num_epochs, 
-                      'loss {%.4f}' % _loss.item(), end='')
+                print('\r', 'epoch', epoch, 'of', num_epochs, '||', 
+                      'loss %.4f' % _loss.item(), end='')
 
             optim.zero_grad()
                         
@@ -47,7 +47,7 @@ class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
                 gramian_d_fr = kernel(t, r_dc, r_fr, model=self)
                 mmd = _mmd_from_gramians(t, gramian_11, gramian_22, gramian_12, biased=biased)
             
-            _loss = lam_mmd * mmd
+            _loss = alpha_mmd * mmd
             
             if log_likelihood:
                 _nll = negative_log_likelihood(dt, mask_spikes, r_dc)
@@ -74,7 +74,9 @@ class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
 
     def sample_free_running(self, t, stim, n_batch_fr):
         _, _, mask_spikes_fr = self.sample(t, stim=stim, shape=(n_batch_fr,))
-        X_fr = torch.from_numpy(self.likelihood_kwargs(t.numpy(), mask_spikes_fr, stim=stim)['X']).float()
+        likelihood_kwargs = self.likelihood_kwargs(t.numpy(), mask_spikes_fr, stim=stim)
+        dt = likelihood_kwargs['dt']
+        X_fr = torch.from_numpy(likelihood_kwargs['X']).float()
         r_fr = self(dt, X_fr)
-        mask_spikes_fr = torch.from_numpy(mask_spikes_fr)
+#         mask_spikes_fr = torch.from_numpy(mask_spikes_fr)
         return r_fr, mask_spikes_fr

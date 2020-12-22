@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import fftconvolve
 
 from .base import Kernel
-from .utils import get_dt, get_arg_support, searchsorted
+from ..utils import get_dt, get_arg_support, searchsorted
 
 
 class KernelBasisValues(Kernel):
@@ -18,7 +18,7 @@ class KernelBasisValues(Kernel):
 
     def interpolate(self, t):
 
-        assert np.isclose(self.dt, get_dt(t))
+        assert len(t)==1 or np.isclose(self.dt, get_dt(t))
 
         t = np.atleast_1d(t)
         res = np.zeros(len(t))
@@ -36,7 +36,7 @@ class KernelBasisValues(Kernel):
 
     def interpolate_basis(self, t):
         
-        assert np.isclose(self.dt, get_dt(t))
+        assert len(t)==1 or np.isclose(self.dt, get_dt(t))
 
         t = np.atleast_1d(t)
 
@@ -93,3 +93,11 @@ class KernelBasisValues(Kernel):
     def copy(self):
         kernel = KernelBasisValues(self.dt, self.basis_values.copy(), self.support.copy(), coefs=self.coefs.copy())
         return kernel
+
+    @classmethod
+    def gaussian(cls, dt, tau):
+        support = np.array([-5 * tau, 5 * tau])
+        t = np.arange(support[0], support[1], dt)
+        A = 1 / np.sqrt(2 * np.pi * tau ** 2)
+        basis_values = np.exp( -(t / (2 * tau))**2 )
+        return cls(dt, basis_values.reshape(-1, 1), support=support, coefs=[A])

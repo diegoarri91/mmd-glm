@@ -1,4 +1,14 @@
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
+from scipy.signal import fftconvolve
+import torch
+
+
+def get_arg_support(dt, t_support, t0=0):
+    arg_support0 = int((t_support[0] - t0) / dt)
+    arg_supportf = int(np.ceil((t_support[1] - t0) / dt))
+    return arg_support0, arg_supportf
 
 
 def get_dt(t):
@@ -6,6 +16,42 @@ def get_dt(t):
     dt = np.median(np.diff(t[:arg_dt]))
     return dt
 
+
+def plot_spiketrain(t, mask_spikes, ax=None, **kwargs):
+
+    color = kwargs.get('color', 'C0')
+    marker = kwargs.get('marker', 'o')
+    ms = kwargs.get('ms', mpl.rcParams['lines.markersize'])
+    mew = kwargs.get('mew', 0)
+    label = kwargs.get('label', None)
+
+    no_ax = False
+    if ax is None:
+        figsize = kwargs.get('figsize', (6, 2))
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.set_xlabel('time (ms)')
+        no_ax = True
+
+    arg_spikes = np.where(mask_spikes)
+    ax.plot(t[arg_spikes[0]], arg_spikes[1], marker=marker, lw=0, color=color, ms=ms, mew=mew)
+        
+    extra_xspace = (t[-1] - t[0]) * .01
+    ax.set_xlim(t[0] - extra_xspace, t[-1] + extra_xspace)
+    ax.tick_params('y', labelleft=False, left=False)
+    if label is not None:
+        ax.set_ylabel(label)
+    
+    return ax
+
+
+def raw_autocorrelation(mask_spikes, padding=None):
+    padding = padding if padding is not None else mask_spikes.shape[0]
+    x = mask_spikes.numpy()
+    autocor = fftconvolve(x, x[::-1], mode='full', axes=0)[::-1] / x.shape[0]
+    arg_lag0 = autocor.shape[0] // 2
+    autocor = torch.from_numpy(autocor[arg_lag0:arg_lag0 + padding])
+    return autocor
+            
 
 def searchsorted(t, s, side='left'):
     '''

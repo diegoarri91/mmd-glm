@@ -41,8 +41,8 @@ class TorchGLM(GLM, torch.nn.Module):
         for epoch in range(num_epochs):
             
             if verbose:
-                print('\r', 'epoch', epoch, 'of', num_epochs, 
-                      'loss {%.4f}' % _loss.item(), end='')
+                print('\r', 'epoch', epoch, 'of', num_epochs, '||', 
+                      'loss %.4f' % _loss.item(), end='')
 
             optim.zero_grad()
 

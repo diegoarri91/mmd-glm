@@ -1,17 +1,18 @@
-from signals import raw_autocorrelation
+from scipy.signal import fftconvolve
 import torch
 from torch.nn.functional import conv1d
 
 
 def phi_autocor(t, mask_spikes, padding=250):
-    autocor = raw_autocorrelation(mask_spikes.numpy(), biased=True)
+    x = mask_spikes.numpy()
+    autocor = fftconvolve(x, x[::-1], mode='full', axes=0)[::-1] / x.shape[0]
     autocor = torch.from_numpy(autocor[1:padding])
     return autocor
 
 
 def phi_autocor_history(t, r, model, padding=250):
     T = len(t)
-    eta = torch.log(r) - model.b.detach()
+    eta = torch.log(r) - model.b
     autocov = conv1d(eta.T[None, :, :], eta.T[:, None, :], padding=padding, groups=eta.shape[1]) / T
     autocov = autocov[0, :, padding + 1:].T
     return autocov

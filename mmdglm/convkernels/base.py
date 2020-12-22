@@ -1,8 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import fftconvolve
+import torch
 
-from .utils import get_arg_support, get_dt, searchsorted
+from ..utils import get_arg_support, get_dt, searchsorted
 
 
 class Kernel:
@@ -50,7 +51,7 @@ class Kernel:
                 
         convolution *= dt
         
-        return convolution
+        return torch.from_numpy(convolution)
 
     def convolve_discrete(self, t, s, A=None, shape=None, renewal=False):
         """Implements the convolution of discrete events in time with the kernel
@@ -86,7 +87,7 @@ class Kernel:
             else:
                 convolution[index] = A * self.interpolate(t[arg:] - t[arg])
                 
-        return convolution
+        return torch.from_numpy(convolution)
    
     def fit(self, t, input, output, mask=None):
 
@@ -102,10 +103,10 @@ class Kernel:
     def correlate_continuous(self, t, x):
         return self.convolve_continuous(t, x[::-1])[::-1]
         
-    def plot(self, t=None, ax=None, offset=0, invert_t=False, invert_values=False, exp_values=False, **kwargs):
+    def plot(self, t=None, ax=None, offset=0, invert_t=False, invert_values=False, gain=False, **kwargs):
 
         if t is None:
-            t = np.linspace(self.support[0], self.support[1], 200)
+            t = np.arange(self.support[0], self.support[1] + self.dt, self.dt)
 
         if ax is None:
             fig, ax = plt.subplots()
@@ -115,7 +116,7 @@ class Kernel:
             t = -t
         if invert_values:
             y = -y
-        if exp_values:
+        if gain:
             y = np.exp(y)
         ax.plot(t, y, **kwargs)
 

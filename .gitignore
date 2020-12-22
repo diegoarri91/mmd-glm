@@ -1,4 +1,6 @@
+.gitignore
 generative_glm.egg-info/
+examples/tmp.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
