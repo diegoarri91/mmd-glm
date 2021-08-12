@@ -6,7 +6,9 @@ from ..utils import get_dt
 
 
 class TorchGLM(GLM, torch.nn.Module):
-
+    
+    """Point process autoregressive GLM implemented in Pytorch"""
+    
     def __init__(self, u0=0, kappa=None, eta=None):
         torch.nn.Module.__init__(self)
         GLM.__init__(self, u0=u0, kappa=kappa, eta=eta)
@@ -23,6 +25,7 @@ class TorchGLM(GLM, torch.nn.Module):
             self.register_parameter("eta_coefs", torch.nn.Parameter(eta_coefs))
     
     def forward(self, dt, X):
+        """Returns the intensity given the data matrix"""
         theta = self.get_params()
         u = torch.einsum('tka,a->tk', X, theta)
         r = torch.exp(u)

@@ -90,6 +90,7 @@ class Kernel:
         return torch.from_numpy(convolution)
    
     def fit(self, t, input, output, mask=None):
+        """Fits the kernel to data using least squares"""
 
         if mask is None:
             mask = np.ones(input.shape, dtype=bool)
@@ -101,9 +102,11 @@ class Kernel:
         self.coefs = np.linalg.lstsq(X, output, rcond=None)[0]
 
     def correlate_continuous(self, t, x):
+        """Implements the correlation of a time series with the kernel"""
         return self.convolve_continuous(t, x[::-1])[::-1]
         
     def plot(self, t=None, ax=None, offset=0, invert_t=False, invert_values=False, gain=False, **kwargs):
+        """Plots the kernel"""
 
         if t is None:
             t = np.arange(self.support[0], self.support[1] + self.dt, self.dt)

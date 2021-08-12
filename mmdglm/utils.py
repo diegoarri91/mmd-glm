@@ -6,19 +6,22 @@ import torch
 
 
 def get_arg_support(dt, t_support, t0=0):
+    r"""Given the support of a kernel and a sampling interval dt returns the corresponding 
+    indexes/argument values"""
     arg_support0 = int((t_support[0] - t0) / dt)
     arg_supportf = int(np.ceil((t_support[1] - t0) / dt))
     return arg_support0, arg_supportf
 
 
 def get_dt(t):
+    r"""Receives a 1d-array with time values and returns the sampling interval"""
     arg_dt = 20 if len(t) >= 20 else len(t)
     dt = np.median(np.diff(t[:arg_dt]))
     return dt
 
 
 def plot_spiketrain(t, mask_spikes, ax=None, **kwargs):
-
+    r"""Plots a spike train"""
     color = kwargs.get('color', 'C0')
     marker = kwargs.get('marker', 'o')
     ms = kwargs.get('ms', mpl.rcParams['lines.markersize'])
@@ -45,6 +48,7 @@ def plot_spiketrain(t, mask_spikes, ax=None, **kwargs):
 
 
 def raw_autocorrelation(mask_spikes, padding=None):
+    r"""Computes the raw autocorrelation of a spiketrain"""
     padding = padding if padding is not None else mask_spikes.shape[0]
     x = mask_spikes.numpy()
     autocor = fftconvolve(x, x[::-1], mode='full', axes=0)[::-1] / x.shape[0]
@@ -89,7 +93,6 @@ def shift_array(arr, shift, fill_value=False):
     Shifts array on axis 0 filling the shifted values with fill_value
     Positive shift is to the right, negative to the left
     """
-
     result = np.empty_like(arr)
     if shift > 0:
         result[:shift, ...] = fill_value

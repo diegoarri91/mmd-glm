@@ -4,6 +4,8 @@ import torch
 
 
 def bernoulli_log_likelihood_pp(mask_spikes):
+    r"""Computes the Bernoulli log-likelihood of the samples relative to the log-likelihood
+    of a poisson process with the same mean rate"""
     n_spk = torch.sum(mask_spikes)
     n_nospk = mask_spikes.numel() - n_spk
     p_spk = n_spk / mask_spikes.numel()
@@ -12,6 +14,8 @@ def bernoulli_log_likelihood_pp(mask_spikes):
 
 
 def poisson_log_likelihood_poisson_process(dt, mask_spikes, u, r):
+    r"""Computes the Poisson log-likelihood of the samples relative to the log-likelihood
+    of a poisson process with the same mean rate"""
     lent = mask_spikes.shape[0]
     n_spikes = np.sum(mask_spikes, 0)
     n_spikes = n_spikes[n_spikes > 0]
@@ -22,7 +26,8 @@ def poisson_log_likelihood_poisson_process(dt, mask_spikes, u, r):
 
 
 def MMD(t, s1, s2, phi=None, kernel=None, biased=False, **kwargs):
-    
+    r"""Computes MMD between s1 and s2 using a feature map or a kernel. 
+    Doesn't support compute gradients"""
     with torch.no_grad():
 
         n1, n2 = s1.shape[1], s2.shape[1]
@@ -58,7 +63,8 @@ def MMD(t, s1, s2, phi=None, kernel=None, biased=False, **kwargs):
 
 
 def time_rescale_transform(dt, mask_spikes, r):
-    
+    r"""Computes the time rescale transform of the data given the predicted rate
+    and the results of the KS test when comparing to the uniform distribution"""
     integral_r = np.cumsum(r * dt, axis=0)
 
     z = []
@@ -72,6 +78,7 @@ def time_rescale_transform(dt, mask_spikes, r):
 
 
 def negative_log_likelihood(dt, mask_spikes, r):
+    r"""Computes the negative log-likelihood of the data"""
     ll = torch.sum(
                 torch.log(1 - torch.exp(-dt * r) * mask_spikes + 1e-24)
             ) - dt * torch.sum(r * (1 - mask_spikes))
@@ -79,6 +86,7 @@ def negative_log_likelihood(dt, mask_spikes, r):
 
 
 def _mmd_from_gramians(t, gramian_11, gramian_22, gramian_12, biased=False):
+    r"""Computes MMD from the gramian matrices"""
     n1, n2 = gramian_11.shape[0], gramian_22.shape[0]
     if not biased:
         gramian_11.fill_diagonal_(0)
@@ -91,6 +99,7 @@ def _mmd_from_gramians(t, gramian_11, gramian_22, gramian_12, biased=False):
 
 
 def _mmd_from_features(t, phi_1, phi_2, biased=False):
+    r"""Computes MMD from the features"""
     n1, n2 = phi_1.shape[1], phi_2.shape[1]
     if biased:
         phi_1_mean = torch.mean(phi_1, 1)
@@ -107,6 +116,7 @@ def _mmd_from_features(t, phi_1, phi_2, biased=False):
 
 
 def _append_metrics(metrics_list, _metrics):
+    r"""Appends the metrics to the metrics dictionary"""
     if metrics_list is None:
         metrics_list = {key:[val] for key, val in _metrics.items()}
     else:

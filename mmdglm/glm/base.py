@@ -8,13 +8,15 @@ from ..utils import get_dt, shift_array
 
 class GLM:
 
+    """Point process autoregressive GLM"""
+    
     def __init__(self, u0=0, kappa=None, eta=None):
         self.u0 = float(u0)
         self.kappa= kappa
         self.eta = eta
 
     def sample(self, t, stim=None, shape=(), full_output=False):
-
+        """Samples from the model at the given times"""
         dt = get_dt(t)
         
         stim_shape = () if stim is None else stim.shape[1:]
@@ -56,7 +58,7 @@ class GLM:
             return u, r, mask_spikes
 
     def sample_conditioned(self, t, mask_spikes, stim=None, full_output=False):
-
+        """Returns the intensity predicted by the model using the given spike times"""
         shape = mask_spikes.shape
         dt = get_dt(t)
         
@@ -113,7 +115,7 @@ class GLM:
         return self
 
     def likelihood_kwargs(self, t, mask_spikes, stim=None):
-
+        """Returns arguments to compute the likelihood function"""
         n_kappa = 0 if self.kappa is None else self.kappa.nbasis
         n_eta = 0 if self.eta is None else self.eta.nbasis
 

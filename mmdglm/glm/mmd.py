@@ -10,7 +10,10 @@ from ..utils import get_dt, shift_array
 
 
 class MMDGLM(GLM, torch.nn.Module):
-
+    
+    """Implements a point process autoregressive GLM that minimizes a joint negative
+    log-likelihood and MMD objective"""
+    
     def __init__(self, u0=0, kappa=None, eta=None):
         torch.nn.Module.__init__(self)
         GLM.__init__(self, u0=u0, kappa=kappa, eta=eta, non_linearity=non_linearity)
@@ -30,7 +33,7 @@ class MMDGLM(GLM, torch.nn.Module):
             self.register_parameter("eta_coefs", torch.nn.Parameter(eta_coefs))
     
     def forward(self, t, stim=None, n_batch_fr=None):
-        
+        """Returns samples from the model"""
         dt = get_dt(t)
         theta_g = self.get_params()
         

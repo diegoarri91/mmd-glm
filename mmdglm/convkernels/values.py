@@ -17,7 +17,7 @@ class KernelBasisValues(Kernel):
         assert self.basis_values.shape[0] == int((self.support[1] - self.support[0]) / self.dt)
 
     def interpolate(self, t):
-
+        """Interpolates the values of the kernel to the given times"""
         assert len(t)==1 or np.isclose(self.dt, get_dt(t))
 
         t = np.atleast_1d(t)
@@ -35,7 +35,7 @@ class KernelBasisValues(Kernel):
         return res
 
     def interpolate_basis(self, t):
-        
+        """Interpolates the values of the kernel basis to the given times"""
         assert len(t)==1 or np.isclose(self.dt, get_dt(t))
 
         t = np.atleast_1d(t)
@@ -50,7 +50,7 @@ class KernelBasisValues(Kernel):
             return self.basis_values[-arg0:min(len(t) - arg0, n_times)]
 
     def convolve_basis_discrete(self, t, s, shape=None):
-
+        """Convolves the kernel basis to the given spike times"""
         if type(s) is np.ndarray:
             s = (s,)
 
@@ -73,7 +73,7 @@ class KernelBasisValues(Kernel):
 
     @classmethod
     def orthogonalized_raised_cosines(cls, dt, last_time_peak, n, b, a=1e0, coefs=None):
-
+        """Returns a kernel using a base of orthogonalized raised cosines"""
         range_locs = np.log(np.array([0, last_time_peak]) + b)
         delta = (range_locs[1] - range_locs[0]) / (n - 1)  # delta = 1 / (n - 1) * np.log(1 + last_peak / b)
         locs = np.linspace(range_locs[0], range_locs[1], n)
@@ -96,6 +96,7 @@ class KernelBasisValues(Kernel):
 
     @classmethod
     def gaussian(cls, dt, tau):
+        """Returns a gaussian kernel centered at 0"""
         support = np.array([-5 * tau, 5 * tau])
         t = np.arange(support[0], support[1], dt)
         A = 1 / np.sqrt(2 * np.pi * tau ** 2)

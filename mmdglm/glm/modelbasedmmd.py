@@ -8,6 +8,9 @@ from ..utils import get_dt, shift_array
 
 class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
 
+    """Implements a point process autoregressive GLM that minimizes a joint negative
+    log-likelihood and model based MMD objective"""
+    
     def __init__(self, u0=0, kappa=None, eta=None):
         torch.nn.Module.__init__(self)
         TorchGLM.__init__(self, u0=u0, kappa=kappa, eta=eta)
