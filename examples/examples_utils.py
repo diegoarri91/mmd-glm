@@ -81,17 +81,17 @@ def plot_fit(axs, label, mask_spikes, dt=1, psth=None, history_filter=None, auto
         axs[4].bar(ii, ll, color=color)
 
 
-def psth_and_autocor(t, mask_spikes, kernel_smooth=None, smooth_autocor=False, last_lag=None):
+def psth_and_autocor(t, mask_spikes, kernel_smooth=None, smooth_autocor=False, arg_last_lag=None):
     """
     Compute PSTH and autocorrelation of samples. PSTH is obtained by smoothing and averaging over trials.
     """
     dt = get_dt(t)
-    psth = torch.mean(kernel_smooth.convolve_continuous(t, mask_spikes), 1) * 1000 # psth obtained by 
-    autocor = raw_autocorrelation(mask_spikes)
+    # psth = torch.mean(kernel_smooth.convolve_continuous(t, mask_spikes), 1) * 1000 # psth obtained by
+    psth = torch.mean(kernel_smooth(mask_spikes, dt=dt), 1) * 1000  # psth obtained by
+    autocor = raw_autocorrelation(mask_spikes, arg_last_lag=arg_last_lag)
     autocor = torch.mean(autocor, 1)
     if smooth_autocor:
-        t_autocor = torch.arange(0, len(autocor), dt)
-        autocor[1:] = kernel_smooth.convolve_continuous(t_autocor[1:], autocor[1:])
-    last_lag = last_lag if last_lag is not None else len(autocor)
-    autocor = autocor[:last_lag]
+        # t_autocor = torch.arange(0, len(autocor), dt)
+        # autocor[1:] = kernel_smooth.convolve_continuous(t_autocor[1:], autocor[1:])
+        autocor[1:] = kernel_smooth(autocor[1:], dt=dt)
     return psth, autocor

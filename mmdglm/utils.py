@@ -1,3 +1,4 @@
+from kernel.utils import torch_convolve
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -47,13 +48,22 @@ def plot_spiketrain(t, mask_spikes, ax=None, **kwargs):
     return ax
 
 
-def raw_autocorrelation(mask_spikes, padding=None):
+# def raw_autocorrelation(mask_spikes, arg_last_lag=None):
+#     r"""Computes the raw autocorrelation of a spiketrain"""
+#     arg_last_lag = arg_last_lag if arg_last_lag is not None else mask_spikes.shape[0]
+#     x = mask_spikes.numpy()
+#     autocor = fftconvolve(x, x[::-1], mode='full', axes=0)[::-1] / x.shape[0]
+#     arg_lag0 = autocor.shape[0] // 2
+#     autocor = torch.from_numpy(autocor[arg_lag0:arg_lag0 + arg_last_lag])
+#     return autocor
+
+
+def raw_autocorrelation(mask_spikes, arg_last_lag=None):
     r"""Computes the raw autocorrelation of a spiketrain"""
-    padding = padding if padding is not None else mask_spikes.shape[0]
-    x = mask_spikes.numpy()
-    autocor = fftconvolve(x, x[::-1], mode='full', axes=0)[::-1] / x.shape[0]
+    arg_last_lag = arg_last_lag if arg_last_lag is not None else mask_spikes.shape[0]
+    autocor = torch_convolve(mask_spikes, mask_spikes.flip(dims=(0,)), mode='fft').flip(dims=(0,))
     arg_lag0 = autocor.shape[0] // 2
-    autocor = torch.from_numpy(autocor[arg_lag0:arg_lag0 + padding])
+    autocor = autocor[arg_lag0:arg_lag0 + arg_last_lag] / mask_spikes.shape[0]
     return autocor
             
 
