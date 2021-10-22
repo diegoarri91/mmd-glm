@@ -9,19 +9,19 @@ class TorchGLM(GLM, torch.nn.Module):
     
     """Point process autoregressive GLM implemented in Pytorch"""
     
-    def __init__(self, u0=0, kappa=None, eta=None):
+    def __init__(self, bias=0, kappa=None, hist=None):
         torch.nn.Module.__init__(self)
-        GLM.__init__(self, u0=u0, kappa=kappa, eta=eta)
+        GLM.__init__(self, bias=bias, kappa=kappa, hist=hist)
         
-        b = torch.tensor([u0]).float()
-        self.register_parameter("b", torch.nn.Parameter(b))
+        bias = torch.tensor([bias]).float()
+        self.register_parameter("b", torch.nn.Parameter(bias))
         
-        if self.kappa is not None:
+        if self.stim is not None:
             kappa_coefs = torch.from_numpy(kappa.coefs).float()
             self.register_parameter("kappa_coefs", torch.nn.Parameter(kappa_coefs))
             
-        if self.eta is not None:
-            eta_coefs = torch.from_numpy(eta.coefs).float()
+        if self.hist is not None:
+            eta_coefs = torch.from_numpy(hist.coefs).float()
             self.register_parameter("eta_coefs", torch.nn.Parameter(eta_coefs))
     
     def forward(self, dt, X):
@@ -31,8 +31,8 @@ class TorchGLM(GLM, torch.nn.Module):
         r = torch.exp(u)
         return r
 
-    def train(self, t, mask_spikes, stim=None, l2=False, alpha_l2=1e0, num_epochs=20, optim=None, metrics=None, 
-              n_metrics=10, verbose=False):
+    def fit(self, t, mask_spikes, stim=None, l2=False, alpha_l2=1e0, num_epochs=20, optim=None, metrics=None,
+            n_metrics=10, verbose=False):
         
         dt = torch.tensor([get_dt(t)])
         loss, metrics_list = [], None
@@ -72,14 +72,14 @@ class TorchGLM(GLM, torch.nn.Module):
 
     def get_params(self):
         
-        n_kappa = 0 if self.kappa is None else self.kappa.nbasis
-        n_eta = 0 if self.eta is None else self.eta.nbasis
+        n_kappa = 0 if self.stim is None else self.stim.nbasis
+        n_eta = 0 if self.hist is None else self.hist.nbasis
         theta = torch.zeros(1 + n_kappa + n_eta)
         
-        theta[0] = self.b
-        if self.kappa is not None:
+        theta[0] = self.bias
+        if self.stim is not None:
             theta[1:1 + n_kappa] = self.kappa_coefs
-        if self.eta is not None:
+        if self.hist is not None:
             theta[1 + n_kappa:] = self.eta_coefs
         
         return theta

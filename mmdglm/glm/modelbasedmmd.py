@@ -11,12 +11,12 @@ class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
     """Implements a point process autoregressive GLM that minimizes a joint negative
     log-likelihood and model based MMD objective"""
     
-    def __init__(self, u0=0, kappa=None, eta=None):
+    def __init__(self, bias=0, kappa=None, hist=None):
         torch.nn.Module.__init__(self)
-        TorchGLM.__init__(self, u0=u0, kappa=kappa, eta=eta)
+        TorchGLM.__init__(self, bias=bias, kappa=kappa, hist=hist)
         
-    def train(self, t, mask_spikes, stim=None, phi=None, kernel=None, log_likelihood=True, alpha_mmd=1e0, biased=True, 
-              n_batch_fr=50, kernel_kwargs=None, num_epochs=20, optim=None, clip=None, metrics=None, n_metrics=1, verbose=False):
+    def fit(self, t, mask_spikes, stim=None, phi=None, kernel=None, log_likelihood=True, alpha_mmd=1e0, biased=True,
+            n_batch_fr=50, kernel_kwargs=None, num_epochs=20, optim=None, clip=None, metrics=None, n_metrics=1, verbose=False):
 
         n_d = mask_spikes.shape[1]
     

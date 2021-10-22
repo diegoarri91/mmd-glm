@@ -14,7 +14,7 @@ def phi_autocor(t, mask_spikes, padding=250):
 def phi_autocor_history(t, r, model, padding=250):
     r"""Computes the autocorrelation of the history term as a feature that can the be used for MMD minimization"""
     T = len(t)
-    eta = torch.log(r) - model.b
+    eta = torch.log(r) - model.bias
     autocov = conv1d(eta.T[None, :, :], eta.T[:, None, :], padding=padding, groups=eta.shape[1]) / T
     autocov = autocov[0, :, padding + 1:].T
     return autocov

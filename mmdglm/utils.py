@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import fftconvolve
 import torch
+from torch import Tensor
 
 
 def get_arg_support(dt, t_support, t0=0):
@@ -14,11 +15,9 @@ def get_arg_support(dt, t_support, t0=0):
     return arg_support0, arg_supportf
 
 
-def get_dt(t):
-    r"""Receives a 1d-array with time values and returns the sampling interval"""
-    arg_dt = 20 if len(t) >= 20 else len(t)
-    dt = np.median(np.diff(t[:arg_dt]))
-    return dt
+def get_timestep(t: Tensor):
+    assert torch.isclose(torch.diff(t), t[1] - t[0]).all(), 'Time values are not evenly spaced'
+    return t[1] - t[0]
 
 
 def plot_spiketrain(t, mask_spikes, ax=None, **kwargs):
