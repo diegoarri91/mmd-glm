@@ -3,7 +3,7 @@ import torch
 
 from .torch import TorchGLM
 from ..metrics import _append_metrics, _mmd_from_features, _mmd_from_gramians, negative_log_likelihood
-from ..utils import get_dt, shift_array
+from ..utils import get_dt, shift_tensor
 
 
 class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
@@ -11,9 +11,9 @@ class ModelBasedMMDGLM(TorchGLM, torch.nn.Module):
     """Implements a point process autoregressive GLM that minimizes a joint negative
     log-likelihood and model based MMD objective"""
     
-    def __init__(self, bias=0, kappa=None, hist=None):
+    def __init__(self, bias=0, kappa=None, hist_kernel=None):
         torch.nn.Module.__init__(self)
-        TorchGLM.__init__(self, bias=bias, kappa=kappa, hist=hist)
+        TorchGLM.__init__(self, bias=bias, kappa=kappa, hist_kernel=hist_kernel)
         
     def fit(self, t, mask_spikes, stim=None, phi=None, kernel=None, log_likelihood=True, alpha_mmd=1e0, biased=True,
             n_batch_fr=50, kernel_kwargs=None, num_epochs=20, optim=None, clip=None, metrics=None, n_metrics=1, verbose=False):

@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import fftconvolve
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -97,18 +98,22 @@ def searchsorted(t, s, side='left'):
     return arg
 
 
-def shift_array(arr, shift, fill_value=False):
+def shift_tensor(input, shift, fill_value=0):
     """
-    Shifts array on axis 0 filling the shifted values with fill_value
-    Positive shift is to the right, negative to the left
+    Shifts tensor to the right along axis 0 filling the new values with fill_value and discarding the rightmost values
     """
-    result = np.empty_like(arr)
-    if shift > 0:
-        result[:shift, ...] = fill_value
-        result[shift:, ...] = arr[:-shift, ...]
-    elif shift < 0:
-        result[shift:, ...] = fill_value
-        result[:shift, ...] = arr[-shift:, ...]
-    else:
-        result = arr
-    return result
+    input = input.transpose(0, -1) if input.ndim > 1 else input
+    input = F.pad(input, (shift, 0), mode='constant', value=fill_value)
+    input = input.transpose(0, -1) if input.ndim > 1 else input
+    input = input[:-1]
+    return input
+    # result = torch.empty_like(input)
+    # if shift > 0:
+    #     result[:shift, ...] = fill_value
+    #     result[shift:, ...] = input[:-shift, ...]
+    # elif shift < 0:
+    #     result[shift:, ...] = fill_value
+    #     result[:shift, ...] = input[-shift:, ...]
+    # else:
+    #     result = input
+    # return result

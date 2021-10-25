@@ -9,19 +9,19 @@ class TorchGLM(GLM, torch.nn.Module):
     
     """Point process autoregressive GLM implemented in Pytorch"""
     
-    def __init__(self, bias=0, kappa=None, hist=None):
+    def __init__(self, bias=0, kappa=None, hist_kernel=None):
         torch.nn.Module.__init__(self)
-        GLM.__init__(self, bias=bias, kappa=kappa, hist=hist)
+        GLM.__init__(self, bias=bias, kappa=kappa, hist_kernel=hist_kernel)
         
         bias = torch.tensor([bias]).float()
         self.register_parameter("b", torch.nn.Parameter(bias))
         
-        if self.stim is not None:
+        if self.stim_kernel is not None:
             kappa_coefs = torch.from_numpy(kappa.coefs).float()
             self.register_parameter("kappa_coefs", torch.nn.Parameter(kappa_coefs))
             
-        if self.hist is not None:
-            eta_coefs = torch.from_numpy(hist.coefs).float()
+        if self.hist_kernel is not None:
+            eta_coefs = torch.from_numpy(hist_kernel.coefs).float()
             self.register_parameter("eta_coefs", torch.nn.Parameter(eta_coefs))
     
     def forward(self, dt, X):
@@ -72,14 +72,14 @@ class TorchGLM(GLM, torch.nn.Module):
 
     def get_params(self):
         
-        n_kappa = 0 if self.stim is None else self.stim.nbasis
-        n_eta = 0 if self.hist is None else self.hist.nbasis
+        n_kappa = 0 if self.stim_kernel is None else self.stim_kernel.nbasis
+        n_eta = 0 if self.hist_kernel is None else self.hist_kernel.nbasis
         theta = torch.zeros(1 + n_kappa + n_eta)
         
         theta[0] = self.bias
-        if self.stim is not None:
+        if self.stim_kernel is not None:
             theta[1:1 + n_kappa] = self.kappa_coefs
-        if self.hist is not None:
+        if self.hist_kernel is not None:
             theta[1 + n_kappa:] = self.eta_coefs
         
         return theta

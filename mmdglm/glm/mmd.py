@@ -6,7 +6,7 @@ from sptr.sptr import SpikeTrain
 
 from .base import GLM
 from ..metrics import _mmd_from_features, _mmd_from_gramians
-from ..utils import get_dt, shift_array
+from ..utils import get_dt, shift_tensor
 
 
 class MMDGLM(GLM, torch.nn.Module):
@@ -14,22 +14,22 @@ class MMDGLM(GLM, torch.nn.Module):
     """Implements a point process autoregressive GLM that minimizes a joint negative
     log-likelihood and MMD objective"""
     
-    def __init__(self, bias=0, kappa=None, hist=None):
+    def __init__(self, bias=0, kappa=None, hist_kernel=None):
         torch.nn.Module.__init__(self)
-        GLM.__init__(self, bias=bias, kappa=kappa, hist=hist, non_linearity=non_linearity)
+        GLM.__init__(self, bias=bias, kappa=kappa, hist_kernel=hist_kernel, non_linearity=non_linearity)
         
-        n_kappa = 0 if self.stim is None else self.stim.nbasis
-        n_eta = 0 if self.hist is None else self.hist.nbasis
+        n_kappa = 0 if self.stim_kernel is None else self.stim_kernel.nbasis
+        n_eta = 0 if self.hist_kernel is None else self.hist_kernel.nbasis
 
         bias = torch.tensor([bias]).double()
         self.register_parameter("b", torch.nn.Parameter(bias))
         
-        if self.stim is not None:
+        if self.stim_kernel is not None:
             kappa_coefs = torch.from_numpy(kappa.coefs)
             self.register_parameter("kappa_coefs", torch.nn.Parameter(kappa_coefs))
             
-        if self.hist is not None:
-            eta_coefs = torch.from_numpy(hist.coefs)
+        if self.hist_kernel is not None:
+            eta_coefs = torch.from_numpy(hist_kernel.coefs)
             self.register_parameter("eta_coefs", torch.nn.Parameter(eta_coefs))
     
     def forward(self, t, stim=None, n_batch_fr=None):
@@ -50,13 +50,13 @@ class MMDGLM(GLM, torch.nn.Module):
         return r_fr, mask_spikes_fr, X_fr
     
     def get_params(self):
-        n_kappa = 0 if self.stim is None else self.stim.nbasis
-        n_eta = 0 if self.hist is None else self.hist.nbasis
+        n_kappa = 0 if self.stim_kernel is None else self.stim_kernel.nbasis
+        n_eta = 0 if self.hist_kernel is None else self.hist_kernel.nbasis
         theta = torch.zeros(1 + n_kappa + n_eta)
         theta[0] = self.bias
-        if self.stim is not None:
+        if self.stim_kernel is not None:
             theta[1:1 + n_kappa] = self.kappa_coefs
-        if self.hist is not None:
+        if self.hist_kernel is not None:
             theta[1 + n_kappa:] = self.eta_coefs
         theta = theta.double()
         return theta
