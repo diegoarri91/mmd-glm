@@ -77,12 +77,10 @@ def time_rescale_transform(dt, mask_spikes, r):
     return z, ks_stats
 
 
-def negative_log_likelihood(dt, mask_spikes, r):
+def negative_log_likelihood(dt, mask_spikes, log_lam):
     r"""Computes the negative log-likelihood of the data"""
-    ll = torch.sum(
-                torch.log(1 - torch.exp(-dt * r) * mask_spikes + 1e-24)
-            ) - dt * torch.sum(r * (1 - mask_spikes))
-    return -ll
+    log_like = torch.sum(log_lam * mask_spikes) - dt * torch.sum(log_lam.exp() * (1 - mask_spikes))
+    return -log_like
 
 
 def _mmd_from_gramians(t, gramian_11, gramian_22, gramian_12, biased=False):
