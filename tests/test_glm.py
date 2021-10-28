@@ -61,6 +61,7 @@ def test_conditional_intensity(glm):
 
 
 def test_fitting_recovers_true_glm(simple_glm):
+    torch.manual_seed(0)
     glm_true = simple_glm.clone()
     glm = GLM(bias=-5.,
               stim_kernel=Kernel(basis=glm_true.stim_kernel.basis),
@@ -79,6 +80,26 @@ def test_fitting_recovers_true_glm(simple_glm):
     assert torch.all(torch.isclose(glm.bias, glm_true.bias, rtol=1e-1))
     assert torch.all(torch.isclose(glm.stim_kernel.weight, glm_true.stim_kernel.weight, rtol=1e-1))
     assert torch.all(torch.isclose(glm.hist_kernel.weight, glm_true.hist_kernel.weight, rtol=1e-1))
+
+
+def test_free_running_gradient_matches_conditioned_gradient(glm):
+    glm_cond = glm.clone()
+    dt = 1
+    t = torch.arange(0, 1000, dt)  # Time points
+    n = 3  # Number of samples
+    stim = torch.randn(len(t), 2)
+    log_lam, mask_spikes = glm.sample(t, stim=stim, shape=(n,))
+    log_lam_cond = glm_cond.log_conditional_intensity(t, mask_spikes, stim=stim)
+
+    target = torch.randn(log_lam.shape)
+    loss = torch.mean((log_lam - target)**2)
+    loss_cond = torch.mean((log_lam_cond - target) ** 2)
+    loss.backward()
+    loss_cond.backward()
+
+    assert torch.all(torch.isclose(glm_cond.bias.grad, glm.bias.grad))
+    assert torch.all(torch.isclose(glm_cond.stim_kernel.weight.grad, glm.stim_kernel.weight.grad))
+    assert torch.all(torch.isclose(glm_cond.hist_kernel.weight.grad, glm.hist_kernel.weight.grad))
 
 
 if __name__ == '__main__':

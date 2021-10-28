@@ -19,8 +19,9 @@ class GLM(nn.Module):
         self.hist_kernel = hist_kernel
 
     def clone(self):
-        return self.__class__(bias=self.bias, stim_kernel=self.stim_kernel.clone(),
-                              hist_kernel=self.hist_kernel.clone())
+        stim_kernel = self.stim_kernel.clone() if self.stim_kernel is not None else None
+        hist_kernel = self.hist_kernel.clone() if self.hist_kernel is not None else None
+        return self.__class__(bias=self.bias, stim_kernel=stim_kernel, hist_kernel=hist_kernel)
 
     def fit(self, t, mask_spikes, stim=None, alpha_l2=0, num_epochs=20, optim=None, metrics=None,
             n_metrics=10, verbose=False):
@@ -88,8 +89,13 @@ class GLM(nn.Module):
                 mask_spikes[j] = p_spk > rand
 
                 if torch.any(mask_spikes[j]) and j < len(t) - 1:
-                    eta_values = self.hist_kernel.evaluate(t[j + 1:] - t[j + 1])
-                    hist_conv[j + 1:, mask_spikes[j]] += eta_values[:, None]
+                    hist_ker_values = self.hist_kernel.evaluate(t[j + 1:] - t[j + 1])
+                    hist_ker_values = hist_ker_values[(slice(None),) + (None,) * len(shape[1:])]
+                    hist_conv[j + 1:, :] += hist_ker_values * mask_spikes[j:j+1].float()
+
+                # if torch.any(mask_spikes[j]) and j < len(t) - 1:
+                #     hist_ker_values = self.hist_kernel.evaluate(t[j + 1:] - t[j + 1])
+                #     hist_conv[j + 1:, mask_spikes[j]] += hist_ker_values[:, None]
         else:
             lam = torch.exp(log_lam)
             p_spk = 1 - np.exp(-lam * dt)

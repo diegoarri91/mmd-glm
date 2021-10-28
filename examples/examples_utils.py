@@ -1,6 +1,6 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mmdglm.utils import get_dt, plot_spiketrain, raw_autocorrelation
+from mmdglm.utils import get_timestep, plot_spiketrain, raw_autocorrelation
 import torch
 
 
@@ -55,6 +55,14 @@ def fig_layout(mmd=False):
     return ax_st, ax_fr, ax_hist, ax_autocor, ax_ll
 
 
+def plot_filter(ax, filter, gain=False, **kwargs):
+    support_range = torch.arange(filter.support[0], filter.support[1], 1)
+    filter_values = filter.evaluate(support_range)
+    if gain:
+        filter_values = torch.exp(filter_values)
+    ax.plot(support_range, filter_values.detach(), **kwargs)
+
+
 def plot_fit(axs, label, mask_spikes, dt=1, psth=None, history_filter=None, autocor=None, ll=None):
     color = palette[label]
     if label == 'data':
@@ -70,7 +78,7 @@ def plot_fit(axs, label, mask_spikes, dt=1, psth=None, history_filter=None, auto
         axs[1].plot(t_psth, psth, color=color)
         
     if history_filter is not None:
-        history_filter.plot(ax=axs[2], gain=True, color=color, label=label)
+        plot_filter(ax=axs[2], filter=history_filter, gain=True, color=color, label=label)
         
     if autocor is not None:
         t_autocor = torch.arange(0, len(autocor), dt)
@@ -85,7 +93,7 @@ def psth_and_autocor(t, mask_spikes, kernel_smooth=None, smooth_autocor=False, a
     """
     Compute PSTH and autocorrelation of samples. PSTH is obtained by smoothing and averaging over trials.
     """
-    dt = get_dt(t)
+    dt = get_timestep(t)
     # psth = torch.mean(kernel_smooth.convolve_continuous(t, mask_spikes), 1) * 1000 # psth obtained by
     psth = torch.mean(kernel_smooth(mask_spikes, dt=dt), 1) * 1000  # psth obtained by
     autocor = raw_autocorrelation(mask_spikes, arg_last_lag=arg_last_lag)
