@@ -1,10 +1,29 @@
+import math
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mmdglm.utils import get_timestep, plot_spiketrain, raw_autocorrelation
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import torch
 
+from mmdglm.metrics import mmd_loss
+from mmdglm.utils import get_timestep, plot_spiketrain, raw_autocorrelation
 
-palette = {'data': 'C0', 'ml-glm': 'C2', 'mmd-glm': 'C1'}
+
+
+PALETTE = {'data': 'C0', 'ml-glm': 'C2', 'mmd-glm': 'C1'}
+
+
+def compute_mean_mmd(model, t, mask_spikes, kernel, n_batch_fr, biased=False):
+    mmd_ml = []
+    for ii in range(20):
+        _, mask_spikes_ml = model.sample(t, shape=(n_batch_fr,))
+        _mmd_ml = mmd_loss(t, mask_spikes, mask_spikes_ml, kernel=kernel, biased=biased)
+        mmd_ml.append(_mmd_ml)
+    mmd_ml = torch.tensor(mmd_ml)
+    mean_mmd_ml = torch.mean(mmd_ml)
+    sd_mmd_ml = torch.std(mmd_ml)
+    se_mmd_ml = sd_mmd_ml / math.sqrt(len(mmd_ml))
+    return mean_mmd_ml, se_mmd_ml
 
 
 def set_style():
@@ -16,6 +35,7 @@ def set_style():
     mpl.rcParams['ytick.labelsize'] = 12
     mpl.rcParams['legend.fontsize'] = 14
 
+    
 def fig_layout(mmd=False):
     
     n_spike_trains = 3 if mmd else 2
@@ -55,6 +75,43 @@ def fig_layout(mmd=False):
     return ax_st, ax_fr, ax_hist, ax_autocor, ax_ll
 
 
+def fig2_layout():
+    fig = plt.figure(figsize=(15, 3))
+    nrows, ncols = 2, 4
+
+    axd = plt.subplot2grid((nrows, ncols), (0, 0), rowspan=1)
+    axmmd_samples = plt.subplot2grid((nrows, ncols), (1, 0), rowspan=1, sharex=axd)
+    axmmd = plt.subplot2grid((nrows, ncols), (0, 1), rowspan=nrows)
+    axmmd_ins = inset_axes(axmmd, width=0.8, height=0.5, bbox_to_anchor=(.25, .1, .7, .4),
+                           bbox_transform=axmmd.transAxes)
+    axnll = plt.subplot2grid((nrows, ncols), (0, 2), rowspan=nrows)
+    axhist = plt.subplot2grid((nrows, ncols), (0, 3), rowspan=nrows)
+
+    fig.subplots_adjust(wspace=0.35)
+
+    axd.set_title('samples')
+    axd.set_ylabel('true')
+    axd.set_yticks([])
+    axd.tick_params(axis='x', labelbottom=False)
+
+    axmmd_samples.set_xlabel('time (ms)')
+    axmmd_samples.set_ylabel('MMD-GLM')
+    axmmd_samples.set_yticks([])
+
+    axmmd.set_xlabel('iteration')
+    axmmd.set_ylabel('MMD$^2$')
+
+    axnll.set_xlabel('iteration');
+    axnll.set_ylabel('NLL');
+
+    axhist.set_title('history filter')
+    axhist.set_xlabel('time (ms)');
+    axhist.set_ylabel('gain')
+    axhist.plot([0, 280], [1, 1], 'k--', lw=1, alpha=0.5)
+
+    return fig, (axd, axmmd_samples, axmmd, axmmd_ins, axnll, axhist)
+
+
 def plot_filter(ax, filter, gain=False, **kwargs):
     support_range = torch.arange(filter.support[0], filter.support[1], 1)
     filter_values = filter.evaluate(support_range)
@@ -63,8 +120,15 @@ def plot_filter(ax, filter, gain=False, **kwargs):
     ax.plot(support_range, filter_values.detach(), **kwargs)
 
 
+def plot_filter_bias(ax, glm, gain=False, bias_offset=0, **kwargs):
+    plot_filter(ax, glm.hist_kernel, gain=gain, **kwargs)
+    ax.text(0.65, 0.25 - bias_offset * 0.1, 'b={:.2f}'.format(glm.bias.item()), color=kwargs.get('color', 'C0'),
+            transform=ax.transAxes, fontsize=14)
+
+
+
 def plot_fit(axs, label, mask_spikes, dt=1, psth=None, history_filter=None, autocor=None, ll=None):
-    color = palette[label]
+    color = PALETTE[label]
     if label == 'data':
         t = torch.arange(0, len(mask_spikes), dt)
         plot_spiketrain(t, mask_spikes, axs[0][0], color=color, label=label)
@@ -87,6 +151,15 @@ def plot_fit(axs, label, mask_spikes, dt=1, psth=None, history_filter=None, auto
     if ll is not None:
         ii = 0 if label == 'mmd-glm' else 1
         axs[4].bar(ii, ll, color=color)
+
+
+def plot_mmd(ax, iterations, mmd, mean_mmd_ml, se_mmd_ml, first_iteration=0):
+    num_epochs = iterations[-1]
+    ax.plot(iterations[first_iteration:], mmd[first_iteration:], label='MMD-GLM', color=PALETTE['mmd-glm'])
+    ax.plot(num_epochs, 0, '-', label='ML-GLM', color=PALETTE['ml-glm'])
+    ax.plot([first_iteration + 1, num_epochs], [mean_mmd_ml - se_mmd_ml, mean_mmd_ml - se_mmd_ml], '--', color=PALETTE['ml-glm'])
+    ax.plot([first_iteration + 1, num_epochs], [mean_mmd_ml + se_mmd_ml, mean_mmd_ml + se_mmd_ml], '--', color=PALETTE['ml-glm'])
+    ax.fill_between([first_iteration + 1, num_epochs], mean_mmd_ml - se_mmd_ml, mean_mmd_ml + se_mmd_ml, alpha=0.5, color=PALETTE['ml-glm'])
 
 
 def psth_and_autocor(t, mask_spikes, kernel_smooth=None, smooth_autocor=False, arg_last_lag=None):
