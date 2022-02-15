@@ -105,7 +105,7 @@ def _append_metrics(metrics_list, _metrics):
 
 
 def _mmd_from_features(t, phi_1, phi_2, biased=False):
-    r"""Computes MMD from the features"""
+    r"""Computes MMD from the feature maps"""
     n1, n2 = phi_1.shape[1], phi_2.shape[1]
     if biased:
         phi_1_mean = torch.mean(phi_1, 1)

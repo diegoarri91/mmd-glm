@@ -13,11 +13,12 @@ from mmdglm.utils import get_timestep, plot_spiketrain, raw_autocorrelation
 PALETTE = {'data': 'C0', 'ml-glm': 'C2', 'mmd-glm': 'C1'}
 
 
-def compute_mean_mmd(model, t, mask_spikes, kernel, n_batch_fr, biased=False):
+def compute_mean_mmd(model, t, mask_spikes, kernel, n_batch_fr, biased=False, kernel_kwargs=None):
+    kernel_kwargs = kernel_kwargs if kernel_kwargs is not None else {}
     mmd_ml = []
     for ii in range(20):
         _, mask_spikes_ml = model.sample(t, shape=(n_batch_fr,))
-        _mmd_ml = mmd_loss(t, mask_spikes, mask_spikes_ml, kernel=kernel, biased=biased)
+        _mmd_ml = mmd_loss(t, mask_spikes, mask_spikes_ml, kernel=kernel, biased=biased, **kernel_kwargs)
         mmd_ml.append(_mmd_ml)
     mmd_ml = torch.tensor(mmd_ml)
     mean_mmd_ml = torch.mean(mmd_ml)
