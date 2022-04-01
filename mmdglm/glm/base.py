@@ -70,7 +70,7 @@ class GLM(nn.Module):
 
         if stim is not None and self.stim_kernel is not None:
             stim_conv = self.stim_kernel(stim, dt=dt)
-            stim_conv = shift_tensor(stim_conv, 1, fill_value=0.)
+            # stim_conv = shift_tensor(stim_conv, 1, fill_value=0.)
             stim_conv = stim_conv.reshape(stim_conv.shape + (1,) * (len(shape) - stim.ndim))
             log_lam = log_lam + stim_conv
         elif stim is None:
@@ -111,29 +111,29 @@ class GLM(nn.Module):
         """Returns the intensity predicted by the model using the given spike times"""
 
         shape = mask_spikes.shape
-        mask_spikes = mask_spikes.float()
         dt = get_timestep(t)
 
         log_lam = torch.zeros(shape) + self.bias
-        mask_spikes = shift_tensor(mask_spikes, 1, fill_value=0.)
 
         if stim is not None:
             stim_conv = self.stim_kernel(stim, dt=dt)
-            stim_conv = shift_tensor(stim_conv, 1, fill_value=0.)
+            # stim_conv = shift_tensor(stim_conv, 1, fill_value=0.)
             stim_conv = stim_conv.reshape(stim_conv.shape + (1,) * (len(shape) - stim.ndim))
             log_lam = log_lam + stim_conv
         else:
             stim_conv = None
             
         if self.hist_kernel is not None:
-            eta_conv = self.hist_kernel(mask_spikes, dt=dt)
+            shifted_mask_spikes = shift_tensor(mask_spikes.float(), 1, fill_value=0.)
+            # shifted_mask_spikes = mask_spikes.float().clone()
+            eta_conv = self.hist_kernel(shifted_mask_spikes, dt=dt)
+            # eta_conv = shift_tensor(eta_conv, 1, fill_value=0.)
             log_lam = log_lam + eta_conv
         else:
             eta_conv = None
 
-        lam = torch.exp(log_lam)
-
         if full_output:
+            lam = torch.exp(log_lam)
             return stim_conv, eta_conv, log_lam, lam
         else:
             return log_lam

@@ -43,10 +43,11 @@ def mmd_loss(t, s1, s2, phi=None, kernel=None, biased=False, **kwargs):
 def negative_log_likelihood(dt, mask_spikes, log_lam, reduction='sum'):
     r"""Computes the negative log-likelihood of the data"""
     mask_spikes = mask_spikes.type(log_lam.dtype)
-    # log_like = torch.sum(log_lam * mask_spikes, dim=0) - dt * torch.sum(log_lam.exp() * (1 - mask_spikes), dim=0)
     lam = log_lam.exp()
     p_spk = 1 - torch.exp(-lam * dt) + 1e-24
     log_like = torch.sum(p_spk.log() * mask_spikes, dim=0) - dt * torch.sum(lam * (1 - mask_spikes), dim=0)
+    # log_like = torch.sum(p_spk.log() * mask_spikes, dim=0) + torch.sum((1 - p_spk).log() * (1 - mask_spikes), dim=0)
+    # log_like = torch.sum(log_lam * mask_spikes, dim=0) - dt * torch.sum(log_lam.exp() * (1 - mask_spikes), dim=0)
     if reduction == 'sum':
         log_like = log_like.sum()
     elif reduction == 'mean':
